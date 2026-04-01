@@ -109,16 +109,27 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /var/lib/flatpak
-          key: flatpak-freedesktop-23.08
+          key: flatpak-freedesktop-22.08
       - name: Install Flatpak tools & runtime
         run: |
           sudo apt-get update -y
           sudo apt-get install -y flatpak flatpak-builder
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub org.freedesktop.Platform//22.08 org.freedesktop.Sdk//22.08
+      - name: Verify Flatpak runtime is accessible
+        run: |
+          mkdir -p /tmp/flatpak-test
+          flatpak build-init /tmp/flatpak-test com.test.Diagnostic org.freedesktop.Sdk org.freedesktop.Platform 22.08 2>&1 && echo "Runtime OK" || echo "Runtime NOT FOUND — this is the root cause"
+          flatpak list --runtime 2>&1 || true
       - run: npm ci
       - name: Build Flatpak
-        run: npm run electron:build -- --linux flatpak --publish never
+        run: npm run electron:build -- --linux flatpak --publish never 2>&1 | tee /tmp/flatpak-build.log; exit ${PIPESTATUS[0]}
+      - name: Upload Flatpak build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-debug-log
+          path: /tmp/flatpak-build.log
       - uses: actions/upload-artifact@v4
         with:
           name: flatpak
