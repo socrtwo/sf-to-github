@@ -78,7 +78,7 @@
           ]
         }
       ],
-      "icon": "build-resources/icon.ico"
+      "icon": "build-resources/icon.png"
     },
     "mac": {
       "target": [
@@ -91,7 +91,7 @@
         }
       ],
       "category": "public.app-category.developer-tools",
-      "icon": "build-resources/icon.icns"
+      "icon": "build-resources/icon.png"
     },
     "linux": {
       "target": [
