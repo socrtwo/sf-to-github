@@ -24,29 +24,22 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - name: Install Azure Artifact Signing tool
-        run: dotnet tool install --global AzureSignTool
       - name: Build Windows x64 + ARM64 installer, portable & App Store package
         run: npm run electron:build -- --win --x64 --arm64 --publish never
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      - name: Sign Windows executables with Azure Artifact Signing
-        run: |
-          $files = Get-ChildItem -Path dist -Include *.exe,*.appx,*.msix -Recurse | Select-Object -ExpandProperty FullName
-          foreach ($file in $files) {
-            AzureSignTool sign `
-              --azure-key-vault-url "${{ secrets.AZURE_SIGNING_ENDPOINT }}" `
-              --azure-key-vault-client-id "${{ secrets.AZURE_CLIENT_ID }}" `
-              --azure-key-vault-client-secret "${{ secrets.AZURE_CLIENT_SECRET }}" `
-              --azure-key-vault-tenant-id "${{ secrets.AZURE_TENANT_ID }}" `
-              --trusted-signing-account "${{ secrets.AZURE_SIGNING_ACCOUNT }}" `
-              --trusted-signing-certificate-profile "${{ secrets.AZURE_SIGNING_PROFILE }}" `
-              --timestamp-rfc3161 "http://timestamp.acs.microsoft.com" `
-              "$file"
-          }
-        shell: pwsh
+      - name: Sign Windows executables with Azure Trusted Signing
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe,appx,msix
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
       - uses: actions/upload-artifact@v4
         with:
           name: windows
