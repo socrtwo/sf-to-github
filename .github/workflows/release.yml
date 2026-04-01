@@ -1,0 +1,217 @@
+name: Build & Release All Platforms
+
+# Triggers when you push a version tag like v1.0.0
+# or manually via GitHub Actions → "Run workflow"
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to release (e.g. v1.0.0)'
+        required: true
+
+jobs:
+  # ─── Windows installer + portable exe ────────────────────────────────────────
+  build-windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build Windows installer & portable
+        run: npm run electron:build -- --win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*.exe
+            dist/*.msi
+          if-no-files-found: warn
+
+  # ─── macOS DMG + zip ─────────────────────────────────────────────────────────
+  build-macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build macOS DMG & zip
+        run: npm run electron:build -- --mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: warn
+
+  # ─── Linux AppImage, deb, rpm ─────────────────────────────────────────────────
+  build-linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build Linux packages
+        run: npm run electron:build -- --linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
+          if-no-files-found: warn
+
+  # ─── Android APK ─────────────────────────────────────────────────────────────
+  build-android:
+    name: Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - run: npm ci
+      - name: Initialize Capacitor Android project
+        run: |
+          npx cap add android 2>/dev/null || true
+          npx cap sync android
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - name: Rename APK
+        run: |
+          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          mv android/app/build/outputs/apk/debug/app-debug.apk \
+             "SF2GH-Migrator-${VERSION}-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: '*.apk'
+
+  # ─── iOS (unsigned — sideloadable with AltStore / TestFlight via Xcode) ──────
+  build-ios:
+    name: iOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Initialize Capacitor iOS project
+        run: |
+          npx cap add ios 2>/dev/null || true
+          npx cap sync ios
+      - name: Install CocoaPods dependencies
+        working-directory: ios/App
+        run: pod install
+      - name: Build iOS archive (unsigned)
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath ios/App/App.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Package as IPA
+        run: |
+          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          mkdir -p Payload
+          cp -r ios/App/App.xcarchive/Products/Applications/App.app Payload/
+          zip -r "SF2GH-Migrator-${VERSION}-ios-unsigned.ipa" Payload/
+          rm -rf Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: '*.ipa'
+
+  # ─── Web (self-hostable zip of the full app) ─────────────────────────────────
+  build-web:
+    name: Web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci --omit=dev
+      - name: Package web app
+        run: |
+          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          zip -r "SF2GH-Migrator-${VERSION}-web.zip" \
+            src/ public/ package.json README.md LICENSE \
+            --exclude "node_modules/*"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: '*.zip'
+
+  # ─── Create GitHub Release with all artifacts ─────────────────────────────────
+  release:
+    name: Publish Release
+    needs: [build-windows, build-macos, build-linux, build-android, build-ios, build-web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+      - name: List release files
+        run: ls -lh release-files/
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.version }}
+          name: 'SF2GH Migrator ${{ github.ref_name || github.event.inputs.version }}'
+          generate_release_notes: true
+          files: release-files/**/*
+          body: |
+            ## Downloads
+
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | Windows  | `*-Setup.exe` | Standard installer |
+            | Windows  | `*-Portable.exe` | No install needed, just run it |
+            | macOS    | `*.dmg` | Drag to Applications |
+            | macOS    | `*.zip` | For auto-updater |
+            | Linux    | `*.AppImage` | Universal — works on any distro |
+            | Linux    | `*.deb` | Ubuntu / Debian |
+            | Linux    | `*.rpm` | Fedora / Red Hat |
+            | Android  | `*-android.apk` | Sideload via Settings → Install unknown apps |
+            | iOS      | `*-ios-unsigned.ipa` | Install via AltStore or Apple TestFlight |
+            | Web      | `*-web.zip` | Self-host with `npm start` |
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

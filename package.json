@@ -14,7 +14,8 @@
     "cap:init": "cap init sf2gh-migrator com.sf2gh.migrator --web-dir public",
     "cap:add:android": "cap add android",
     "cap:add:ios": "cap add ios",
-    "cap:sync": "cap sync"
+    "cap:sync": "cap sync",
+    "release": "node -e \"const v=require('./package.json').version; require('child_process').execSync('git tag v'+v+' && git push origin v'+v, {stdio:'inherit'})\""
   },
   "keywords": ["sourceforge", "github", "migration", "git", "svn"],
   "author": "Paul D Pruitt",
