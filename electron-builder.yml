@@ -29,7 +29,6 @@ linux:
     - AppImage
     - deb
     - rpm
-    - flatpak
   category: Development
   icon: public/icons/icon-512.png
   maintainer: socrtwo@users.noreply.github.com
