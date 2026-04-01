@@ -1,0 +1,43 @@
+{
+  "name": "sf2gh-migrator",
+  "version": "1.0.0",
+  "description": "Cross-platform app to migrate SourceForge projects to GitHub",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js",
+    "test": "jest --forceExit --detectOpenHandles",
+    "test:coverage": "jest --coverage --forceExit --detectOpenHandles",
+    "lint": "eslint src/ tests/",
+    "electron": "electron electron/main.js",
+    "electron:build": "electron-builder",
+    "cap:init": "cap init sf2gh-migrator com.sf2gh.migrator --web-dir public",
+    "cap:add:android": "cap add android",
+    "cap:add:ios": "cap add ios",
+    "cap:sync": "cap sync"
+  },
+  "keywords": ["sourceforge", "github", "migration", "git", "svn"],
+  "author": "Paul D Pruitt",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "helmet": "^8.1.0",
+    "express-rate-limit": "^7.5.0",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.1.0",
+    "eslint": "^8.57.0"
+  },
+  "optionalDependencies": {
+    "electron": "^33.4.0",
+    "electron-builder": "^25.1.8",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/cli": "^7.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
