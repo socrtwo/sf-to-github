@@ -133,21 +133,31 @@ async function migrate(rawUrl, options = {}) {
   }
   const effectiveOwner = org || repoOwner;
 
-  // Step 4: Check if repo exists
+  // Step 4: Check if repo exists — push into existing repo instead of failing
   const exists = await github.repoExists(token, effectiveOwner, repoName);
+  let createdRepo;
   if (exists) {
-    throw new Error(
-      `Repository "${effectiveOwner}/${repoName}" already exists on GitHub`
-    );
+    logger.info(`Repository ${effectiveOwner}/${repoName} already exists, pushing into it`);
+    createdRepo = { html_url: `https://github.com/${effectiveOwner}/${repoName}` };
+  } else {
+    // Step 5: Create GitHub repo
+    logger.info(`Creating GitHub repo: ${effectiveOwner}/${repoName}`);
+    try {
+      createdRepo = await github.createRepo(token, repoName, {
+        description,
+        isPrivate: Boolean(isPrivate),
+        org,
+      });
+    } catch (createErr) {
+      // 422 often means repo already exists (case-insensitive name collision)
+      if (createErr.message && createErr.message.includes('422')) {
+        logger.info(`Repository ${effectiveOwner}/${repoName} already exists (422), pushing into it`);
+        createdRepo = { html_url: `https://github.com/${effectiveOwner}/${repoName}` };
+      } else {
+        throw createErr;
+      }
+    }
   }
-
-  // Step 5: Create GitHub repo
-  logger.info(`Creating GitHub repo: ${effectiveOwner}/${repoName}`);
-  const createdRepo = await github.createRepo(token, repoName, {
-    description,
-    isPrivate: Boolean(isPrivate),
-    org,
-  });
 
   // Step 6: Generate and execute migration commands
   const tmpBase = tmpDir || os.tmpdir();

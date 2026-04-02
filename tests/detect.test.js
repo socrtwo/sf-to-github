@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseSourceForgeUrl, ScmType } = require('../src/detect');
+const { parseSourceForgeUrl, probeGit, probeSvn, ScmType } = require('../src/detect');
 
 describe('ScmType', () => {
   it('has GIT, SVN, and UNKNOWN values', () => {
@@ -99,5 +99,30 @@ describe('parseSourceForgeUrl', () => {
       const result = parseSourceForgeUrl('  https://sourceforge.net/projects/my-project/  ');
       expect(result).toEqual({ projectName: 'my-project', scmHint: null });
     });
+  });
+});
+
+describe('probeGit', () => {
+  it('accepts a mountPoint parameter', () => {
+    // probeGit should accept (projectName, mountPoint) and not throw
+    expect(typeof probeGit).toBe('function');
+    expect(probeGit.length).toBe(2);
+  });
+
+  it('returns false for invalid project names', async () => {
+    const result = await probeGit('invalid project!', 'code');
+    expect(result).toBe(false);
+  });
+});
+
+describe('probeSvn', () => {
+  it('accepts a mountPoint parameter', () => {
+    expect(typeof probeSvn).toBe('function');
+    expect(probeSvn.length).toBe(2);
+  });
+
+  it('returns false for invalid project names', async () => {
+    const result = await probeSvn('invalid project!', 'code');
+    expect(result).toBe(false);
   });
 });

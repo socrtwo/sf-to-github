@@ -56,9 +56,36 @@ window.MobileMigrate = (function () {
     throw new Error('Unrecognized SourceForge URL: ' + rawUrl);
   }
 
-  function getGitUrl(projectName) {
+  function getGitUrl(projectName, mountPoint) {
     // encodeURIComponent handles any residual spaces or special chars safely
-    return 'https://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
+    return 'https://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/' + (mountPoint || 'code');
+  }
+
+  /**
+   * Query the SourceForge REST API to discover available SCM tools for a project.
+   * Returns { scmType, mountPoint } or null if no SCM tool is found.
+   */
+  async function discoverScmTool(projectName) {
+    try {
+      var data = await nativeGetJSON('https://sourceforge.net/rest/p/' + encodeURIComponent(projectName));
+      var tools = data.tools || [];
+      // Prefer git, then svn
+      for (var i = 0; i < tools.length; i++) {
+        var name = (tools[i].name || '').toLowerCase();
+        if (name === 'git' && tools[i].mount_point) {
+          return { scmType: 'git', mountPoint: tools[i].mount_point };
+        }
+      }
+      for (var j = 0; j < tools.length; j++) {
+        var sname = (tools[j].name || '').toLowerCase();
+        if (sname === 'svn' && tools[j].mount_point) {
+          return { scmType: 'svn', mountPoint: tools[j].mount_point };
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 
   // ─── Repo Name Sanitization ───────────────────────────────────────────────
@@ -95,7 +122,13 @@ window.MobileMigrate = (function () {
         });
         const data = await res.json().catch(function () { return {}; });
         if (!res.ok) {
-          const err = new Error('GitHub API ' + res.status + ': ' + (data.message || res.statusText));
+          var detail = data.message || res.statusText;
+          // Include validation error details from GitHub (e.g. "name already exists on this account")
+          if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+            var errorMsgs = data.errors.map(function (e) { return e.message || e.code || ''; }).filter(Boolean);
+            if (errorMsgs.length > 0) detail += ' (' + errorMsgs.join('; ') + ')';
+          }
+          const err = new Error('GitHub API ' + res.status + ': ' + detail);
           err.status = res.status;
           err.data = data;
           throw err;
@@ -168,8 +201,18 @@ window.MobileMigrate = (function () {
       log('Repository already exists on GitHub, pushing into it.');
       repoData = { html_url: 'https://github.com/' + owner + '/' + repoName };
     } else {
-      repoData = await createRepo(token, repoName, { isPrivate: isPrivate });
-      log('Repository created: ' + repoData.html_url);
+      try {
+        repoData = await createRepo(token, repoName, { isPrivate: isPrivate });
+        log('Repository created: ' + repoData.html_url);
+      } catch (createErr) {
+        // 422 often means the repo already exists (case-insensitive name collision)
+        if (createErr.status === 422) {
+          log('Repository already exists on GitHub, pushing into it.');
+          repoData = { html_url: 'https://github.com/' + owner + '/' + repoName };
+        } else {
+          throw createErr;
+        }
+      }
     }
 
     // Step 2: Clone from SourceForge (all branches + tags)
@@ -284,8 +327,41 @@ window.MobileMigrate = (function () {
       };
     }
 
-    const gitUrl = getGitUrl(parsed.projectName);
-    const scmLabel = parsed.scmType === 'git-assumed' ? 'git (assumed from URL)' : 'git';
+    // Discover actual mount point from SourceForge REST API
+    var scmTool = await discoverScmTool(parsed.projectName);
+    if (scmTool && scmTool.scmType === 'svn') {
+      return {
+        projectName: parsed.projectName,
+        scmType: 'svn',
+        sourceUrl: 'https://svn.code.sf.net/p/' + parsed.projectName + '/' + scmTool.mountPoint,
+        githubUrl: 'https://github.com/' + owner + '/' + repoName,
+        steps: [
+          {
+            step: 'unsupported',
+            description: 'SVN migration is not supported on mobile — use the desktop or web app',
+            command: 'N/A',
+          },
+        ],
+      };
+    }
+    if (!scmTool && parsed.scmType === 'git-assumed') {
+      return {
+        projectName: parsed.projectName,
+        scmType: 'none',
+        sourceUrl: null,
+        githubUrl: 'https://github.com/' + owner + '/' + repoName,
+        steps: [
+          {
+            step: 'no-repo',
+            description: 'No source code repository found — this project may only use file releases',
+            command: 'N/A',
+          },
+        ],
+      };
+    }
+
+    const gitUrl = getGitUrl(parsed.projectName, scmTool ? scmTool.mountPoint : undefined);
+    const scmLabel = parsed.scmType === 'git-assumed' ? 'git (discovered via API)' : 'git';
 
     return {
       projectName: parsed.projectName,
@@ -351,7 +427,30 @@ window.MobileMigrate = (function () {
         }
 
         var repoName = sanitizeRepoName(parsed.projectName);
-        var gitUrl = getGitUrl(parsed.projectName);
+
+        // Discover the actual SCM tool mount point from SourceForge REST API
+        log('  Discovering repository tools...');
+        var scmTool = await discoverScmTool(parsed.projectName);
+        if (scmTool && scmTool.scmType === 'svn') {
+          log('  SVN project — not supported on mobile. Use the desktop app.');
+          results.push({
+            success: false,
+            sourceUrl: rawUrl,
+            error: 'SVN migration is not supported on mobile — use the desktop or web version',
+          });
+          continue;
+        }
+        if (!scmTool) {
+          log('  No source code repository found for this project.');
+          log('  This project may only use file releases without a Git/SVN repo.');
+          results.push({
+            success: false,
+            sourceUrl: rawUrl,
+            error: 'No source code repository (Git or SVN) found for this SourceForge project',
+          });
+          continue;
+        }
+        var gitUrl = getGitUrl(parsed.projectName, scmTool.mountPoint);
 
         var result = await migrateGitRepo(
           gitUrl,
