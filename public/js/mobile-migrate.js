@@ -368,18 +368,63 @@ window.MobileMigrate = (function () {
     return null;
   }
 
+  /**
+   * Make an HTTP GET that returns parsed JSON.
+   * On native Capacitor (iOS/Android), uses CapacitorHttp which makes
+   * a real native HTTP call — bypasses WebView CORS restrictions entirely.
+   * Falls back to window.fetch on web / desktop.
+   */
+  async function nativeGetJSON(url) {
+    // CapacitorHttp is a built-in plugin in @capacitor/core v4+.
+    // It is available via the Capacitor bridge without any extra import.
+    var capHttp = window.Capacitor &&
+                  window.Capacitor.Plugins &&
+                  window.Capacitor.Plugins.CapacitorHttp;
+    if (capHttp) {
+      var resp = await capHttp.request({
+        url: url,
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+        responseType: 'json',
+      });
+      if (resp.status === 404) {
+        var err = new Error('Not found (HTTP 404)');
+        err.status = 404;
+        throw err;
+      }
+      if (resp.status >= 400) {
+        var e = new Error('HTTP ' + resp.status);
+        e.status = resp.status;
+        throw e;
+      }
+      // CapacitorHttp auto-parses JSON when responseType:'json'
+      return typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
+    }
+    // Standard fetch path (web / Electron / browser)
+    var res = await fetch(url, {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'SF2GH-Migrator/1.0' },
+    });
+    if (!res.ok) {
+      var fe = new Error('HTTP ' + res.status);
+      fe.status = res.status;
+      throw fe;
+    }
+    return res.json();
+  }
+
   async function lookupProfile(rawInput) {
     const username = parseSFUsername(rawInput);
     if (!username) throw new Error('Could not extract a SourceForge username from: ' + rawInput);
 
     const url = 'https://sourceforge.net/rest/u/' + encodeURIComponent(username) + '/profile';
-    const res = await fetch(url, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'SF2GH-Migrator/1.0' },
-    });
-    if (res.status === 404) throw new Error('SourceForge user "' + username + '" not found');
-    if (!res.ok) throw new Error('SourceForge API error: ' + res.status);
-
-    const data = await res.json();
+    var data;
+    try {
+      data = await nativeGetJSON(url);
+    } catch (e) {
+      if (e.status === 404) throw new Error('SourceForge user "' + username + '" not found');
+      throw new Error('SourceForge API error: ' + e.message +
+        '. Check the username is correct at sourceforge.net/u/' + username + '/profile/');
+    }
     const root = data.user || data;
 
     const seen = new Set();

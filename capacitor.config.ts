@@ -10,6 +10,7 @@ const config: CapacitorConfig = {
     allowNavigation: [
       'api.github.com',
       'git.code.sf.net',
+      'sourceforge.net',
       'unpkg.com',
     ],
   },
