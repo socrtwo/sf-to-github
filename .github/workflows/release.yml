@@ -13,10 +13,11 @@ on:
         required: true
 
 jobs:
-  # ─── Windows x64 + ARM64 + App Store (AppX) ──────────────────────────────────
+  # ─── Windows installer + portable exe ────────────────────────────────────────
   build-windows:
-    name: Windows (x64 + ARM64 + AppX)
+    name: Windows
     runs-on: windows-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,62 +25,21 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - name: Build Windows x64 + ARM64 installer, portable & App Store package
-        run: npm run electron:build -- --win --x64 --arm64 --publish never
-      - name: Stage signable files (installer + AppX only, not portable)
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path to-sign
-          Copy-Item "dist\*Setup*.exe" to-sign\ -ErrorAction SilentlyContinue
-          Copy-Item "dist\*.appx" to-sign\ -ErrorAction SilentlyContinue
-          Copy-Item "dist\*.msix" to-sign\ -ErrorAction SilentlyContinue
-          Get-ChildItem to-sign
-      - name: Sign EXE installers
-        uses: azure/trusted-signing-action@v0
-        with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
-          files-folder: to-sign
-          files-folder-filter: exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-      - name: Sign AppX packages
-        continue-on-error: true
-        uses: azure/trusted-signing-action@v0
-        with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
-          files-folder: to-sign
-          files-folder-filter: appx,msix
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-      - name: Copy signed files back to dist
-        shell: pwsh
-        run: Copy-Item "to-sign\*" dist\ -Force -ErrorAction SilentlyContinue
+      - name: Build Windows installer & portable
+        run: npm run electron:build -- --win
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             dist/*.exe
             dist/*.msi
-            dist/*.appx
-            dist/*.msix
           if-no-files-found: warn
 
   # ─── macOS DMG + zip ─────────────────────────────────────────────────────────
   build-macos:
     name: macOS
     runs-on: macos-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -88,7 +48,7 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Build macOS DMG & zip
-        run: npm run electron:build -- --mac --publish never
+        run: npm run electron:build -- --mac
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -97,10 +57,11 @@ jobs:
             dist/*.zip
           if-no-files-found: warn
 
-  # ─── Linux x64 + ARM64 — AppImage, deb, rpm ───────────────────────────────────
+  # ─── Linux AppImage, deb, rpm ─────────────────────────────────────────────────
   build-linux:
-    name: Linux (x64 + ARM64)
+    name: Linux
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -108,8 +69,8 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - name: Build Linux x64 + ARM64 packages
-        run: npm run electron:build -- --linux --x64 --arm64 --publish never
+      - name: Build Linux packages
+        run: npm run electron:build -- --linux
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -119,77 +80,11 @@ jobs:
             dist/*.rpm
           if-no-files-found: warn
 
-  # ─── Linux Flatpak (works on any distro incl. Steam Deck) ────────────────────
-  build-flatpak:
-    name: Linux (Flatpak)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - name: Cache Flatpak runtime
-        uses: actions/cache@v4
-        with:
-          path: /var/lib/flatpak
-          key: flatpak-freedesktop-22.08
-      - name: Install Flatpak tools & runtime
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub org.freedesktop.Platform//22.08 org.freedesktop.Sdk//22.08
-      - run: npm ci
-      - name: Build app (unpacked, no package)
-        run: npm run electron:build -- --linux dir --publish never
-      - name: Build Flatpak manually
-        run: |
-          VERSION="${{ github.ref_name || github.event.inputs.version }}"
-          APPNAME="$(basename $(pwd))"
-          APPID="$(node -p "require('./package.json').build?.appId || 'com.app.App'"  2>/dev/null || echo 'com.app.App')"
-          echo "AppId: $APPID  Version: $VERSION"
-
-          # Init the Flatpak build directory
-          flatpak build-init flatpak-build "$APPID" org.freedesktop.Sdk org.freedesktop.Platform 22.08
-
-          # Copy the unpacked Electron app into the Flatpak
-          mkdir -p flatpak-build/files/bin
-          cp -r dist/linux-unpacked/* flatpak-build/files/bin/
-
-          # Find the main executable
-          EXEC=$(ls dist/linux-unpacked/*.exe 2>/dev/null | head -1 || ls dist/linux-unpacked/ | head -1)
-          EXEC_NAME=$(basename "$EXEC")
-          echo "Executable: $EXEC_NAME"
-
-          # Finish and export the build
-          flatpak build-finish flatpak-build \
-            --share=network \
-            --socket=x11 \
-            --socket=wayland \
-            --filesystem=home \
-            --device=dri \
-            --command="/app/bin/$EXEC_NAME"
-
-          flatpak build-export flatpak-repo flatpak-build stable
-
-          # Bundle into a single .flatpak file
-          mkdir -p dist
-          flatpak build-bundle flatpak-repo \
-            "dist/${APPNAME}-${VERSION}.flatpak" \
-            "$APPID" stable
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flatpak
-          path: dist/*.flatpak
-          if-no-files-found: warn
-
   # ─── Android APK ─────────────────────────────────────────────────────────────
   build-android:
     name: Android
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -199,12 +94,10 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '17'
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
       - run: npm ci
-      - name: Install Capacitor Android platform
-        run: npm install @capacitor/android@^7
       - name: Initialize Capacitor Android project
         run: |
           npx cap add android 2>/dev/null || true
@@ -214,7 +107,7 @@ jobs:
         run: ./gradlew assembleDebug
       - name: Rename APK
         run: |
-          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
           mv android/app/build/outputs/apk/debug/app-debug.apk \
              "SF2GH-Migrator-${VERSION}-android.apk"
       - uses: actions/upload-artifact@v4
@@ -226,6 +119,7 @@ jobs:
   build-ios:
     name: iOS
     runs-on: macos-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -233,8 +127,6 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - name: Install Capacitor iOS platform
-        run: npm install @capacitor/ios@^7
       - name: Initialize Capacitor iOS project
         run: |
           npx cap add ios 2>/dev/null || true
@@ -256,7 +148,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
       - name: Package as IPA
         run: |
-          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
           mkdir -p Payload
           cp -r ios/App/App.xcarchive/Products/Applications/App.app Payload/
           zip -r "SF2GH-Migrator-${VERSION}-ios-unsigned.ipa" Payload/
@@ -270,6 +162,7 @@ jobs:
   build-web:
     name: Web
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -279,22 +172,21 @@ jobs:
       - run: npm ci --omit=dev
       - name: Package web app
         run: |
-          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
           zip -r "SF2GH-Migrator-${VERSION}-web.zip" \
             src/ public/ package.json README.md LICENSE \
-            --exclude "node_modules/*" 2>/dev/null || \
-          zip -r "SF2GH-Migrator-${VERSION}-web.zip" \
-            src/ public/ package.json README.md \
-            --exclude "node_modules/*" 2>/dev/null || true
+            --exclude "node_modules/*"
       - uses: actions/upload-artifact@v4
         with:
           name: web
           path: '*.zip'
 
-  # ─── Create GitHub Release with all artifacts ────────────────────────────────
+  # ─── Create GitHub Release with all artifacts ─────────────────────────────────
   release:
     name: Publish Release
-    needs: [build-windows, build-macos, build-linux, build-flatpak, build-android, build-ios, build-web]
+    # Always run even if some platform builds failed — publish whatever succeeded
+    if: always()
+    needs: [build-windows, build-macos, build-linux, build-android, build-ios, build-web]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -305,13 +197,15 @@ jobs:
         with:
           path: release-files
           merge-multiple: true
+        continue-on-error: true
       - name: List release files
-        run: ls -lh release-files/
+        run: ls -lh release-files/ 2>/dev/null || echo "No artifacts to list"
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || github.event.inputs.version }}
-          name: 'SF2GH Migrator ${{ github.ref_name || github.event.inputs.version }}'
+          # inputs.version is set when manually triggered; ref_name is the tag on push
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          name: 'SF2GH Migrator ${{ github.event.inputs.version || github.ref_name }}'
           generate_release_notes: true
           files: release-files/**/*
           body: |
@@ -319,18 +213,15 @@ jobs:
 
             | Platform | File | Notes |
             |----------|------|-------|
-            | Windows x64 | `*-Setup.exe` | Standard installer |
-            | Windows x64 | `*-Portable.exe` | No install needed, just run it |
-            | Windows ARM64 | `*-arm64-Setup.exe` | Surface Pro X, ARM laptops |
-            | Windows App Store | `*.appx` | Sideload or submit to Microsoft Store |
-            | macOS | `*.dmg` | Drag to Applications |
-            | Linux x64 | `*.AppImage` | Universal — works on any distro |
-            | Linux ARM64 | `*-arm64.AppImage` | Raspberry Pi, ARM servers |
-            | Linux x64 | `*.deb` | Ubuntu / Debian |
-            | Linux x64 | `*.rpm` | Fedora / Red Hat |
-            | Linux | `*.flatpak` | Flatpak — Steam Deck, GNOME Software |
-            | Android | `*-android.apk` | Sideload via Settings → Install unknown apps |
-            | iOS | `*-ios-unsigned.ipa` | Install via AltStore or TestFlight |
-            | Web | `*-web.zip` | Self-host with `npm start` |
+            | Windows  | `*-Setup.exe` | Standard installer |
+            | Windows  | `*-Portable.exe` | No install needed, just run it |
+            | macOS    | `*.dmg` | Drag to Applications |
+            | macOS    | `*.zip` | For auto-updater |
+            | Linux    | `*.AppImage` | Universal — works on any distro |
+            | Linux    | `*.deb` | Ubuntu / Debian |
+            | Linux    | `*.rpm` | Fedora / Red Hat |
+            | Android  | `*-android.apk` | Sideload via Settings → Install unknown apps |
+            | iOS      | `*-ios-unsigned.ipa` | Install via AltStore or Apple TestFlight |
+            | Web      | `*-web.zip` | Self-host with `npm start` |
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
