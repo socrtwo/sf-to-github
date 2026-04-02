@@ -75,26 +75,40 @@ window.MobileMigrate = (function () {
 
   // ─── GitHub API via fetch ─────────────────────────────────────────────────
 
-  async function githubFetch(method, apiPath, token, body) {
-    const res = await fetch('https://api.github.com' + apiPath, {
-      method: method,
-      headers: Object.assign({
-        'User-Agent': 'SF2GH-Migrator/1.0',
-        'Accept': 'application/vnd.github+json',
-        'Authorization': 'Bearer ' + token,
-        'X-GitHub-Api-Version': '2022-11-28',
-      }, body ? { 'Content-Type': 'application/json' } : {}),
-      body: body ? JSON.stringify(body) : undefined,
-    });
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) {
-      const err = new Error('GitHub API ' + res.status + ': ' + (data.message || res.statusText));
-      err.status = res.status;
-      err.data = data;
-      throw err;
+  async function githubFetch(method, apiPath, token, body) {
+    // Retry up to 3 times with backoff — Android's OkHttp connection pool
+    // can get exhausted during batch operations causing transient fetch failures.
+    var lastErr;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch('https://api.github.com' + apiPath, {
+          method: method,
+          headers: Object.assign({
+            'User-Agent': 'SF2GH-Migrator/1.0',
+            'Accept': 'application/vnd.github+json',
+            'Authorization': 'Bearer ' + token,
+            'X-GitHub-Api-Version': '2022-11-28',
+          }, body ? { 'Content-Type': 'application/json' } : {}),
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) {
+          const err = new Error('GitHub API ' + res.status + ': ' + (data.message || res.statusText));
+          err.status = res.status;
+          err.data = data;
+          throw err;
+        }
+        return data;
+      } catch (e) {
+        lastErr = e;
+        // Don't retry on definitive HTTP errors (4xx) — only on network failures
+        if (e.status && e.status >= 400 && e.status < 500) throw e;
+        if (attempt < 3) await sleep(attempt * 800);
+      }
     }
-    return data;
+    throw lastErr;
   }
 
   async function getAuthenticatedUser(token) {
@@ -316,6 +330,10 @@ window.MobileMigrate = (function () {
     const results = [];
     for (var i = 0; i < urls.length; i++) {
       var rawUrl = urls[i];
+      // Brief pause between repos lets Android's HTTP connection pool drain,
+      // preventing "Failed to fetch" on back-to-back GitHub API calls.
+      if (i > 0) await sleep(600);
+
       log('');
       log('─── [' + (i + 1) + '/' + urls.length + '] ' + rawUrl + ' ───');
 
@@ -323,8 +341,7 @@ window.MobileMigrate = (function () {
         var parsed = parseSourceForgeUrl(rawUrl);
 
         if (parsed.scmType === 'svn') {
-          log('SVN repositories are not supported on mobile.');
-          log('To migrate this repo, use the desktop app or web version (requires a running server).');
+          log('  SVN project — not supported on mobile. Use the desktop app.');
           results.push({
             success: false,
             sourceUrl: rawUrl,
@@ -347,11 +364,16 @@ window.MobileMigrate = (function () {
         results.push(Object.assign({ sourceUrl: rawUrl }, result));
 
       } catch (err) {
-        log('  Error: ' + err.message);
-        if (err.message && err.message.toLowerCase().indexOf('cors') !== -1) {
-          log('  Tip: This may be a CORS restriction. Try the desktop app for this repository.');
+        var msg = err.message || String(err);
+        // 404 on git clone almost always means the project uses SVN, not git
+        if (msg.indexOf('404') !== -1 || msg.indexOf('Not Found') !== -1) {
+          log('  Git repository not found (404). This project likely uses SVN.');
+          log('  SVN migration requires the desktop app — skipping.');
+          results.push({ success: false, sourceUrl: rawUrl, error: 'SVN project (git 404) — use desktop app' });
+        } else {
+          log('  Error: ' + msg);
+          results.push({ success: false, sourceUrl: rawUrl, error: msg });
         }
-        results.push({ success: false, sourceUrl: rawUrl, error: err.message });
       }
     }
 
