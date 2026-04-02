@@ -28,9 +28,14 @@
             <p class="subtitle">Migrate SourceForge projects to GitHub</p>
           </div>
         </div>
-        <div class="health-status" id="healthStatus">
-          <span class="status-dot"></span>
-          <span class="status-text">Checking...</span>
+        <div class="header-right">
+          <div class="health-status" id="healthStatus">
+            <span class="status-dot"></span>
+            <span class="status-text">Checking...</span>
+          </div>
+          <button type="button" class="btn-help" id="btnHelp" title="Help &amp; Instructions" aria-label="Help">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          </button>
         </div>
       </div>
     </header>
@@ -129,6 +134,73 @@
         <div class="output-log" id="outputLog"></div>
       </section>
     </main>
+
+    <!-- ─── Help Modal ─────────────────────────────────────────────────── -->
+    <div class="modal-overlay" id="helpModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 id="helpModalTitle">SF2GH Migrator — Help &amp; Instructions</h2>
+          <button type="button" class="modal-close" id="helpModalClose" aria-label="Close help">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+
+          <h3>What does this app do?</h3>
+          <p>SF2GH Migrator copies an entire SourceForge project — all branches, all tags, all history — into a new GitHub repository. It works with both <strong>Git</strong> and <strong>SVN</strong> projects hosted on SourceForge.</p>
+
+          <h3>Step 1 — GitHub Token</h3>
+          <p>Paste a GitHub Personal Access Token with the <code>repo</code> scope. This lets the app create repositories on your account and push code to them. <a href="https://github.com/settings/tokens/new?scopes=repo&description=SF2GH+Migrator" target="_blank" rel="noopener">Create a token →</a></p>
+
+          <h3>Step 2 — Find repos by SourceForge profile <span class="badge-new">NEW</span></h3>
+          <p>The easiest way to add repos is to look up a SourceForge user:</p>
+          <ol>
+            <li>Paste a SourceForge profile URL into the <strong>"Find by SourceForge Profile"</strong> field, for example:<br>
+              <code>https://sourceforge.net/u/myusername/profile/</code><br>
+              or just type the username: <code>myusername</code></li>
+            <li>Click the <strong>search icon</strong> (or press Enter).</li>
+            <li>A list of all their projects appears with checkboxes.</li>
+            <li>Tick the ones you want, then click <strong>"Add selected to list"</strong>.</li>
+          </ol>
+
+          <h3>Step 2 (alternative) — Paste URLs directly</h3>
+          <p>You can also type or paste SourceForge URLs directly into the text area, one per line. Accepted formats:</p>
+          <ul>
+            <li><code>https://sourceforge.net/projects/my-project/</code></li>
+            <li><code>https://git.code.sf.net/p/my-project/code</code> — Git only</li>
+            <li><code>https://svn.code.sf.net/p/my-project/code</code> — SVN only</li>
+          </ul>
+
+          <h3>Step 3 — Options</h3>
+          <ul>
+            <li><strong>Target Organization</strong> — leave blank to migrate to your personal account, or enter an org name (you must be a member with repo-creation rights).</li>
+            <li><strong>Private repositories</strong> — tick this to create private repos instead of public ones.</li>
+          </ul>
+
+          <h3>Step 4 — Dry Run vs. Migrate</h3>
+          <ul>
+            <li><strong>Dry Run (Preview)</strong> — shows exactly what the app would do without touching GitHub or SourceForge. Use this first to verify the plan.</li>
+            <li><strong>Migrate to GitHub</strong> — creates the GitHub repo(s) and copies all code. This is the real thing.</li>
+          </ul>
+
+          <h3>Modes</h3>
+          <ul>
+            <li><strong>Server Mode</strong> — when running locally with <code>npm start</code>, the app uses your machine's git/svn binaries. Supports both Git and SVN.</li>
+            <li><strong>Browser Mode / Mobile App</strong> — when the server is not running (e.g. accessed from a phone or tablet), the app switches automatically to client-side mode using a built-in JavaScript git engine. Git repos work fully; SVN repos require the desktop version.</li>
+          </ul>
+
+          <h3>Status indicator</h3>
+          <p>The dot in the top-right corner shows the current mode:</p>
+          <ul>
+            <li><span class="status-dot online" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><strong>Server v1.x.x</strong> — connected to local Node.js server (full Git + SVN support)</li>
+            <li><span class="status-dot online" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><strong>Browser Mode</strong> — client-side mode, server not found (Git only)</li>
+            <li><span class="status-dot online" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><strong>Mobile App</strong> — running as installed iOS/Android app (Git only)</li>
+            <li><span class="status-dot offline" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><strong>Server offline</strong> — server not found and browser mode unavailable</li>
+          </ul>
+
+        </div>
+      </div>
+    </div>
 
     <footer class="footer">
       <p>SF2GH Migrator &middot; MIT License &middot; <a href="https://github.com/socrtwo/sf-to-github" target="_blank" rel="noopener">Source Code</a></p>

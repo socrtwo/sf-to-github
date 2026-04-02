@@ -26,13 +26,13 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Build Windows installer & portable
-        run: npm run electron:build -- --win
+        run: npm run electron:build -- --win --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             dist/*.exe
-            dist/*.msi
+            dist/*.appx
           if-no-files-found: warn
 
   # ─── macOS DMG + zip ─────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: Build macOS DMG & zip
-        run: npm run electron:build -- --mac
+        run: npm run electron:build -- --mac --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -68,9 +68,11 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+      - name: Install Linux packaging tools
+        run: sudo apt-get install -y fakeroot dpkg rpm
       - run: npm ci
       - name: Build Linux packages
-        run: npm run electron:build -- --linux
+        run: npm run electron:build -- --linux --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -91,13 +93,16 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+      # Capacitor Android v7 requires Java 21
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
       - run: npm ci
+      # Install Capacitor Android platform (version-pinned to match @capacitor/core)
+      - run: npm install @capacitor/android@^7 --no-save
       - name: Initialize Capacitor Android project
         run: |
           npx cap add android 2>/dev/null || true
@@ -127,6 +132,8 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      # Install Capacitor iOS platform (version-pinned to match @capacitor/core)
+      - run: npm install @capacitor/ios@^7 --no-save
       - name: Initialize Capacitor iOS project
         run: |
           npx cap add ios 2>/dev/null || true
@@ -213,15 +220,17 @@ jobs:
 
             | Platform | File | Notes |
             |----------|------|-------|
-            | Windows  | `*-Setup.exe` | Standard installer |
+            | Windows  | `*-Setup.exe` | Standard installer (recommended) |
             | Windows  | `*-Portable.exe` | No install needed, just run it |
             | macOS    | `*.dmg` | Drag to Applications |
-            | macOS    | `*.zip` | For auto-updater |
-            | Linux    | `*.AppImage` | Universal — works on any distro |
+            | Linux    | `*.AppImage` | Universal — works on any distro, just `chmod +x` and run |
             | Linux    | `*.deb` | Ubuntu / Debian |
             | Linux    | `*.rpm` | Fedora / Red Hat |
-            | Android  | `*-android.apk` | Sideload via Settings → Install unknown apps |
+            | Android  | `*-android.apk` | Sideload: enable "Install unknown apps" in Settings |
             | iOS      | `*-ios-unsigned.ipa` | Install via AltStore or Apple TestFlight |
-            | Web      | `*-web.zip` | Self-host with `npm start` |
+            | Web      | `*-web.zip` | Extract and run `npm install && npm start`, then open http://localhost:3000 |
+
+            > **Mobile / browser users:** The Android APK and iOS IPA run the migration entirely on-device — no server needed.
+            > The web zip requires Node.js to run the server. For browser-only use, open the app in any modern browser and it will automatically switch to client-side mode if the server is unavailable.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
