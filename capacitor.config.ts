@@ -6,6 +6,12 @@ const config: CapacitorConfig = {
   webDir: 'public',
   server: {
     androidScheme: 'https',
+    // Allow network requests to external hosts required for migration
+    allowNavigation: [
+      'api.github.com',
+      'git.code.sf.net',
+      'unpkg.com',
+    ],
   },
   plugins: {
     SplashScreen: {
