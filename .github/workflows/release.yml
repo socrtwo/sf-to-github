@@ -34,7 +34,7 @@ jobs:
           Copy-Item "dist\*.appx" to-sign\ -ErrorAction SilentlyContinue
           Copy-Item "dist\*.msix" to-sign\ -ErrorAction SilentlyContinue
           Get-ChildItem to-sign
-      - name: Sign Windows executables with Azure Trusted Signing
+      - name: Sign EXE installers
         uses: azure/trusted-signing-action@v0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -44,7 +44,21 @@ jobs:
           trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
           files-folder: to-sign
-          files-folder-filter: exe,appx,msix
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Sign AppX packages
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          files-folder: to-sign
+          files-folder-filter: appx,msix
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
@@ -127,20 +141,44 @@ jobs:
           sudo apt-get install -y flatpak flatpak-builder
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub org.freedesktop.Platform//22.08 org.freedesktop.Sdk//22.08
-      - name: Verify Flatpak runtime is accessible
-        run: |
-          mkdir -p /tmp/flatpak-test
-          flatpak build-init /tmp/flatpak-test com.test.Diagnostic org.freedesktop.Sdk org.freedesktop.Platform 22.08 2>&1 && echo "Runtime OK" || echo "Runtime NOT FOUND — this is the root cause"
-          flatpak list --runtime 2>&1 || true
       - run: npm ci
-      - name: Build Flatpak
-        run: npm run electron:build -- --linux flatpak --publish never 2>&1 | tee /tmp/flatpak-build.log; exit ${PIPESTATUS[0]}
-      - name: Upload Flatpak build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flatpak-debug-log
-          path: /tmp/flatpak-build.log
+      - name: Build app (unpacked, no package)
+        run: npm run electron:build -- --linux dir --publish never
+      - name: Build Flatpak manually
+        run: |
+          VERSION="${{ github.ref_name || github.event.inputs.version }}"
+          APPNAME="$(basename $(pwd))"
+          APPID="$(node -p "require('./package.json').build?.appId || 'com.app.App'"  2>/dev/null || echo 'com.app.App')"
+          echo "AppId: $APPID  Version: $VERSION"
+
+          # Init the Flatpak build directory
+          flatpak build-init flatpak-build "$APPID" org.freedesktop.Sdk org.freedesktop.Platform 22.08
+
+          # Copy the unpacked Electron app into the Flatpak
+          mkdir -p flatpak-build/files/bin
+          cp -r dist/linux-unpacked/* flatpak-build/files/bin/
+
+          # Find the main executable
+          EXEC=$(ls dist/linux-unpacked/*.exe 2>/dev/null | head -1 || ls dist/linux-unpacked/ | head -1)
+          EXEC_NAME=$(basename "$EXEC")
+          echo "Executable: $EXEC_NAME"
+
+          # Finish and export the build
+          flatpak build-finish flatpak-build \
+            --share=network \
+            --socket=x11 \
+            --socket=wayland \
+            --filesystem=home \
+            --device=dri \
+            --command="/app/bin/$EXEC_NAME"
+
+          flatpak build-export flatpak-repo flatpak-build stable
+
+          # Bundle into a single .flatpak file
+          mkdir -p dist
+          flatpak build-bundle flatpak-repo \
+            "dist/${APPNAME}-${VERSION}.flatpak" \
+            "$APPID" stable
       - uses: actions/upload-artifact@v4
         with:
           name: flatpak
