@@ -357,12 +357,59 @@ window.MobileMigrate = (function () {
     return { results: results };
   }
 
+  // ─── SourceForge Profile Lookup (mobile — direct fetch) ──────────────────
+
+  function parseSFUsername(rawInput) {
+    if (!rawInput) return null;
+    const s = rawInput.trim();
+    const urlMatch = s.match(/sourceforge\.net\/(?:u(?:sers?)?|p)\/([^/?#\s]+)/i);
+    if (urlMatch) return urlMatch[1].toLowerCase();
+    if (/^[a-zA-Z0-9_.\-]+$/.test(s)) return s.toLowerCase();
+    return null;
+  }
+
+  async function lookupProfile(rawInput) {
+    const username = parseSFUsername(rawInput);
+    if (!username) throw new Error('Could not extract a SourceForge username from: ' + rawInput);
+
+    const url = 'https://sourceforge.net/rest/u/' + encodeURIComponent(username) + '/profile';
+    const res = await fetch(url, {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'SF2GH-Migrator/1.0' },
+    });
+    if (res.status === 404) throw new Error('SourceForge user "' + username + '" not found');
+    if (!res.ok) throw new Error('SourceForge API error: ' + res.status);
+
+    const data = await res.json();
+    const root = data.user || data;
+
+    const seen = new Set();
+    const repos = [];
+    const addList = function (list) {
+      if (!Array.isArray(list)) return;
+      list.forEach(function (p) {
+        var shortname = p.shortname || p.unix_name || p.name;
+        if (!shortname || seen.has(shortname)) return;
+        seen.add(shortname);
+        repos.push({
+          name: p.name || shortname,
+          shortname: shortname,
+          sfProjectUrl: 'https://sourceforge.net/projects/' + shortname + '/',
+        });
+      });
+    };
+    addList(root.projects);
+    addList(root.developer_on);
+
+    return { username: username, repos: repos };
+  }
+
   // ─── Public API ───────────────────────────────────────────────────────────
 
   return {
     isPlatformMobile: isPlatformMobile,
     planMigration: planMigration,
     migrateBatch: migrateBatch,
+    lookupProfile: lookupProfile,
   };
 
 })();

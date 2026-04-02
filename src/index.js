@@ -8,6 +8,7 @@ const path = require('path');
 const { migrate, migrateBatch, planMigration } = require('./migrate');
 const { detect } = require('./detect');
 const { sanitizeRepoName } = require('./sanitize');
+const { parseSFUsername, fetchSFProfile, extractRepos } = require('./sfprofile');
 const logger = require('./logger');
 
 const app = express();
@@ -22,7 +23,8 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       imgSrc: ["'self'", "data:", "https:"],
       // Allow GitHub API (used by mobile-migrate.js) and SourceForge git endpoints
-      connectSrc: ["'self'", "https://api.github.com", "https://git.code.sf.net", "https://unpkg.com"],
+      connectSrc: ["'self'", "https://api.github.com", "https://git.code.sf.net",
+                   "https://sourceforge.net", "https://unpkg.com"],
     },
   },
 }));
@@ -77,6 +79,26 @@ app.post('/api/sanitize', (req, res) => {
     }
     res.json({ original: name, sanitized: sanitizeRepoName(name) });
   } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Look up all projects for a SourceForge user profile
+app.post('/api/sf-profile', async (req, res) => {
+  try {
+    const { profileUrl } = req.body;
+    if (!profileUrl) {
+      return res.status(400).json({ error: 'profileUrl is required' });
+    }
+    const username = parseSFUsername(profileUrl);
+    if (!username) {
+      return res.status(400).json({ error: 'Could not extract a SourceForge username from: ' + profileUrl });
+    }
+    const profileData = await fetchSFProfile(username);
+    const repos = extractRepos(profileData);
+    res.json({ username, repos });
+  } catch (err) {
+    logger.error(`SF profile lookup error: ${err.message}`);
     res.status(400).json({ error: err.message });
   }
 });

@@ -12,6 +12,14 @@
   const outputSection = document.getElementById('outputSection');
   const outputLog = document.getElementById('outputLog');
   const healthStatus = document.getElementById('healthStatus');
+  const sfProfileInput = document.getElementById('sfProfile');
+  const btnLookupProfile = document.getElementById('btnLookupProfile');
+  const profileProjectsSection = document.getElementById('profileProjects');
+  const profileProjectsLabel = document.getElementById('profileProjectsLabel');
+  const projectCheckboxList = document.getElementById('projectCheckboxList');
+  const btnSelectAll = document.getElementById('btnSelectAllProjects');
+  const btnDeselectAll = document.getElementById('btnDeselectAllProjects');
+  const btnAddSelected = document.getElementById('btnAddSelected');
 
   // Detect mobile (Capacitor native shell)
   const isMobile = window.MobileMigrate && window.MobileMigrate.isPlatformMobile();
@@ -29,6 +37,98 @@
   }
   tokenInput.addEventListener('input', updateButtons);
   urlsInput.addEventListener('input', updateButtons);
+
+  // ─── Profile Lookup ─────────────────────────────────────────────────────
+
+  function renderProjectList(repos) {
+    projectCheckboxList.innerHTML = '';
+    repos.forEach(function (repo) {
+      var label = document.createElement('label');
+      label.className = 'project-checkbox-item';
+
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.value = repo.sfProjectUrl;
+
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'proj-name';
+      nameSpan.textContent = repo.name;
+
+      var urlSpan = document.createElement('span');
+      urlSpan.className = 'proj-url';
+      urlSpan.textContent = repo.sfProjectUrl;
+
+      label.appendChild(cb);
+      label.appendChild(nameSpan);
+      label.appendChild(urlSpan);
+      projectCheckboxList.appendChild(label);
+    });
+  }
+
+  btnSelectAll.addEventListener('click', function () {
+    projectCheckboxList.querySelectorAll('input[type=checkbox]').forEach(function (cb) { cb.checked = true; });
+  });
+  btnDeselectAll.addEventListener('click', function () {
+    projectCheckboxList.querySelectorAll('input[type=checkbox]').forEach(function (cb) { cb.checked = false; });
+  });
+  btnAddSelected.addEventListener('click', function () {
+    var existing = urlsInput.value.trim();
+    var selected = [];
+    projectCheckboxList.querySelectorAll('input[type=checkbox]:checked').forEach(function (cb) {
+      selected.push(cb.value);
+    });
+    if (selected.length === 0) return;
+    urlsInput.value = (existing ? existing + '\n' : '') + selected.join('\n');
+    updateButtons();
+    // Scroll textarea into view
+    urlsInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  function doProfileLookup() {
+    var raw = sfProfileInput.value.trim();
+    if (!raw) return;
+
+    btnLookupProfile.disabled = true;
+    profileProjectsSection.hidden = true;
+
+    var lookupPromise;
+    if (isMobile) {
+      lookupPromise = window.MobileMigrate.lookupProfile(raw);
+    } else {
+      lookupPromise = apiPost('/api/sf-profile', { profileUrl: raw }).then(function (result) {
+        if (!result.ok) throw new Error(result.data.error || 'Profile lookup failed');
+        return result.data;
+      });
+    }
+
+    lookupPromise
+      .then(function (data) {
+        if (!data.repos || data.repos.length === 0) {
+          profileProjectsLabel.textContent = 'No projects found for @' + data.username;
+          profileProjectsSection.hidden = false;
+          projectCheckboxList.innerHTML = '';
+          return;
+        }
+        profileProjectsLabel.textContent =
+          data.repos.length + ' project(s) found for @' + data.username + ' — select which to migrate:';
+        renderProjectList(data.repos);
+        profileProjectsSection.hidden = false;
+      })
+      .catch(function (err) {
+        profileProjectsLabel.textContent = 'Error: ' + err.message;
+        projectCheckboxList.innerHTML = '';
+        profileProjectsSection.hidden = false;
+      })
+      .finally(function () {
+        btnLookupProfile.disabled = false;
+      });
+  }
+
+  btnLookupProfile.addEventListener('click', doProfileLookup);
+  sfProfileInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') doProfileLookup();
+  });
 
   // Health check
   function checkHealth() {

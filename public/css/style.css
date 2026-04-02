@@ -404,3 +404,55 @@ textarea {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-hover);
 }
+
+/* Profile project picker */
+.profile-projects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.profile-projects-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0;
+  text-decoration: underline;
+}
+.btn-link:hover { color: var(--accent-hover, var(--accent-primary)); }
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+.project-checkbox-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 12px;
+  display: grid;
+  gap: 4px;
+}
+.project-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.project-checkbox-item:hover { background: var(--bg-hover, var(--bg-secondary)); }
+.project-checkbox-item input[type="checkbox"] { flex-shrink: 0; cursor: pointer; }
+.project-checkbox-item .proj-name { font-weight: 500; }
+.project-checkbox-item .proj-url  { color: var(--text-muted); font-size: 0.75rem; }

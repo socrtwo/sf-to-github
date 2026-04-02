@@ -58,6 +58,32 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           Source Repositories
         </h2>
+
+        <!-- Profile lookup -->
+        <div class="form-group">
+          <label for="sfProfile">Find by SourceForge Profile <span class="label-hint">(optional)</span></label>
+          <div class="input-wrapper">
+            <input type="text" id="sfProfile" placeholder="https://sourceforge.net/u/username/profile/ or username">
+            <button type="button" class="btn-icon" id="btnLookupProfile" title="Look up projects">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </button>
+          </div>
+          <small class="help-text">Enter a SourceForge profile URL or username to auto-discover all their repositories.</small>
+        </div>
+
+        <!-- Project picker (hidden until lookup succeeds) -->
+        <div id="profileProjects" hidden>
+          <div class="profile-projects-header">
+            <span id="profileProjectsLabel" class="label-hint"></span>
+            <div class="profile-projects-actions">
+              <button type="button" class="btn-link" id="btnSelectAllProjects">Select all</button>
+              <button type="button" class="btn-link" id="btnDeselectAllProjects">Deselect all</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnAddSelected">Add selected to list</button>
+            </div>
+          </div>
+          <div id="projectCheckboxList" class="project-checkbox-list"></div>
+        </div>
+
         <div class="form-group">
           <label for="sourceUrls">SourceForge URLs <span class="label-hint">(one per line)</span></label>
           <textarea id="sourceUrls" rows="5" placeholder="https://sourceforge.net/projects/my-project/&#10;https://git.code.sf.net/p/another-project/code&#10;https://svn.code.sf.net/p/legacy-project/code"></textarea>
