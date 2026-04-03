@@ -2,7 +2,7 @@
   "name": "sf2gh-migrator",
   "version": "1.0.0",
   "description": "Cross-platform app to migrate SourceForge projects to GitHub",
-  "main": "src/index.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node src/index.js",
