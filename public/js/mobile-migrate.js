@@ -61,6 +61,107 @@ window.MobileMigrate = (function () {
     return 'https://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
   }
 
+  function getSshGitUrl(projectName) {
+    return 'ssh://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
+  }
+
+  // ─── SourceForge Git Repo Pre-flight Check ───────────────────────────────
+  // Returns: { status: 'has-code' | 'empty' | 'no-repo', tools: [...] }
+
+  async function checkSFGitRepo(projectName, log) {
+    log('[1/4] Checking SourceForge git repo...');
+
+    // First, check what tools the project has via the REST API
+    var projectUrl = 'https://sourceforge.net/rest/p/' + encodeURIComponent(projectName);
+    try {
+      var projectData = await nativeGetJSON(projectUrl);
+      var tools = (projectData.tools || []).map(function (t) {
+        return { name: t.name, mount_point: t.mount_point };
+      });
+      var hasGitTool = tools.some(function (t) {
+        return t.name === 'git' || t.mount_point === 'code' || t.mount_point === 'git';
+      });
+
+      if (!hasGitTool) {
+        return { status: 'no-repo', tools: tools };
+      }
+    } catch (e) {
+      // If project API fails, try probing git directly
+    }
+
+    // Probe the git repo to see if it has content
+    var gitUrl = getGitUrl(projectName);
+    try {
+      // Try fetching git info/refs — if it works, the repo exists
+      var infoUrl = gitUrl + '/info/refs?service=git-upload-pack';
+      var res = await fetch(infoUrl).catch(function () { return null; });
+      if (res && res.ok) {
+        var text = await res.text();
+        // If the response is very short or empty, the repo exists but has no refs
+        if (text.length < 50) {
+          return { status: 'empty', tools: [] };
+        }
+        return { status: 'has-code', tools: [] };
+      }
+      // Try the REST API for the code tool
+      var codeUrl = 'https://sourceforge.net/rest/p/' + encodeURIComponent(projectName) + '/code/';
+      try {
+        var codeData = await nativeGetJSON(codeUrl);
+        // If we get data back, the tool exists
+        if (codeData && codeData.commits && codeData.commits.length > 0) {
+          return { status: 'has-code', tools: [] };
+        }
+        return { status: 'empty', tools: [] };
+      } catch (codeErr) {
+        if (codeErr.status === 404) {
+          return { status: 'no-repo', tools: [] };
+        }
+        // Assume has code if we can't tell (let clone attempt figure it out)
+        return { status: 'has-code', tools: [] };
+      }
+    } catch (e) {
+      return { status: 'has-code', tools: [] };
+    }
+  }
+
+  // ─── SourceForge Files Download ──────────────────────────────────────────
+  // Downloads file listing from the SF File Release System (FRS)
+
+  async function listSFFiles(projectName) {
+    // The FRS API lists folders and files
+    var url = 'https://sourceforge.net/rest/p/' + encodeURIComponent(projectName) + '/';
+    var data = await nativeGetJSON(url);
+    // Extract file download URLs from the project data
+    // The FRS structure has folders → files with download URLs
+    return data;
+  }
+
+  async function downloadSFFileList(projectName) {
+    // Get the list of files from the Files section
+    var url = 'https://sourceforge.net/projects/' + encodeURIComponent(projectName) + '/rss?path=/';
+    try {
+      var res = await fetch(url);
+      if (!res.ok) return [];
+      var text = await res.text();
+      // Parse RSS to extract download links
+      var files = [];
+      var itemRegex = /<item>[\s\S]*?<link>([\s\S]*?)<\/link>[\s\S]*?<\/item>/gi;
+      var match;
+      while ((match = itemRegex.exec(text)) !== null) {
+        var fileUrl = match[1].trim();
+        if (fileUrl && fileUrl.indexOf('/download') !== -1) {
+          var fileName = fileUrl.split('/').filter(function (p) { return p && p !== 'download'; }).pop();
+          if (fileName) {
+            files.push({ name: decodeURIComponent(fileName), url: fileUrl });
+          }
+        }
+      }
+      return files;
+    } catch (e) {
+      return [];
+    }
+  }
+
   // ─── Repo Name Sanitization ───────────────────────────────────────────────
 
   function sanitizeRepoName(name) {
@@ -198,12 +299,12 @@ window.MobileMigrate = (function () {
     }
 
     // Step 2: Clone from SourceForge using native JGit (supports SSH + HTTPS)
-    log('Cloning from ' + sourceUrl + ' (native git) ...');
+    log('[2/4] Cloning from ' + sourceUrl + ' (native git) ...');
     log('(Large repositories may take several minutes)');
     await ng.clone({ url: sourceUrl, dir: dirName });
     log('Clone complete.');
 
-    // Step 3: Discover branches and tags
+    // Discover branches and tags
     var branchResult = await ng.listBranches({ dir: dirName, remote: 'origin' });
     var tagResult = await ng.listTags({ dir: dirName });
     var remoteBranches = branchResult.branches || [];
@@ -213,7 +314,8 @@ window.MobileMigrate = (function () {
     var githubUrl = 'https://github.com/' + owner + '/' + repoName + '.git';
     var pushedSteps = [];
 
-    // Step 4: Push each branch
+    // Push each branch to GitHub
+    log('[3/4] Pushing to GitHub...');
     for (var bi = 0; bi < remoteBranches.length; bi++) {
       var branch = remoteBranches[bi];
       if (branch === 'HEAD') continue;
@@ -233,7 +335,7 @@ window.MobileMigrate = (function () {
       }
     }
 
-    // Step 5: Push each tag
+    // Push each tag
     for (var ti = 0; ti < tags.length; ti++) {
       var tag = tags[ti];
       log('Pushing tag: ' + tag);
@@ -417,24 +519,24 @@ window.MobileMigrate = (function () {
       githubUrl: 'https://github.com/' + owner + '/' + repoName,
       steps: [
         {
+          step: 'check-sf-repo',
+          description: '[1/4] Check SourceForge git repo status (has code / empty / no Code tab)',
+          command: 'GET /rest/p/' + parsed.projectName + '/',
+        },
+        {
           step: 'create-repo',
-          description: 'Create GitHub repository: ' + owner + '/' + repoName,
+          description: '[2/4] Create GitHub repository: ' + owner + '/' + repoName,
           command: 'GitHub API POST /user/repos {"name":"' + repoName + '"}',
         },
         {
           step: 'clone',
-          description: 'Clone all branches and tags from SourceForge into device storage',
-          command: 'isomorphic-git clone --no-single-branch --tags ' + gitUrl,
+          description: '[3/4] Clone all branches and tags from SourceForge',
+          command: (hasNativeGit() ? 'JGit' : 'isomorphic-git') + ' clone ' + gitUrl,
         },
         {
-          step: 'push-branches',
-          description: 'Push all branches to GitHub',
-          command: 'isomorphic-git push (each remote branch → github.com)',
-        },
-        {
-          step: 'push-tags',
-          description: 'Push all tags to GitHub',
-          command: 'isomorphic-git push (each tag → github.com)',
+          step: 'push',
+          description: '[4/4] Push all branches and tags to GitHub',
+          command: (hasNativeGit() ? 'JGit' : 'isomorphic-git') + ' push → github.com',
         },
       ],
     };
@@ -458,7 +560,7 @@ window.MobileMigrate = (function () {
       if (i > 0) await sleep(600);
 
       log('');
-      log('─── [' + (i + 1) + '/' + urls.length + '] ' + rawUrl + ' ───');
+      log('═══ [' + (i + 1) + '/' + urls.length + '] ' + rawUrl + ' ═══');
 
       try {
         var parsed = parseSourceForgeUrl(rawUrl);
@@ -474,7 +576,44 @@ window.MobileMigrate = (function () {
         }
 
         var repoName = sanitizeRepoName(parsed.projectName);
-        var gitUrl = getGitUrl(parsed.projectName);
+        var projectName = parsed.projectName;
+
+        // ── Step 1: Pre-flight check ──────────────────────────────────
+        var repoStatus = await checkSFGitRepo(projectName, function (msg) { log('  ' + msg); });
+
+        if (repoStatus.status === 'no-repo') {
+          log('  ✗ No Code/git tab found for this project.');
+          log('  → Create one at: https://sourceforge.net/p/' + projectName + '/admin/tools');
+          log('  → Click "Git" to add a Code tab, then re-run the migration.');
+          results.push({
+            success: false,
+            sourceUrl: rawUrl,
+            error: 'No Code/git tab — create one at sf.net/p/' + projectName + '/admin/tools',
+          });
+          continue;
+        }
+
+        if (repoStatus.status === 'empty') {
+          log('  ⚠ Git repo exists but is empty.');
+          // Try to populate from Files section
+          log('  [1.5/4] Checking Files section for downloadable content...');
+          var sfFiles = await downloadSFFileList(projectName);
+          if (sfFiles.length > 0) {
+            log('  Found ' + sfFiles.length + ' file(s) in Files section.');
+            log('  Note: Files section contains release downloads (zips, etc.),');
+            log('  not source code. Push source to the Code tab manually first,');
+            log('  or continue to migrate the empty repo structure to GitHub.');
+          } else {
+            log('  No files found in Files section either.');
+            log('  The repo is empty — migrating empty repo structure to GitHub.');
+          }
+        } else {
+          log('  ✓ Git repo has content.');
+        }
+
+        // ── Step 2: Clone from SourceForge ────────────────────────────
+        log('  [2/4] Cloning from SourceForge...');
+        var gitUrl = getGitUrl(projectName);
 
         var result = await migrateGitRepo(
           gitUrl,
@@ -484,6 +623,9 @@ window.MobileMigrate = (function () {
           Boolean(options.isPrivate),
           function (msg) { log('  ' + msg); }
         );
+
+        // ── Step 3 & 4 are inside migrateGitRepo (push branches, push tags)
+        log('  [4/4] Migration complete for ' + projectName);
         results.push(Object.assign({ sourceUrl: rawUrl }, result));
 
       } catch (err) {
@@ -497,9 +639,9 @@ window.MobileMigrate = (function () {
           log('  Tip: Use the desktop app, native mobile app (APK/IPA), or self-host the web server.');
           results.push({ success: false, sourceUrl: rawUrl, error: 'CORS blocked — use desktop or native app' });
         } else if (msg.indexOf('404') !== -1 || msg.indexOf('Not Found') !== -1) {
-          log('  Git repository not found (404). This project likely uses SVN.');
-          log('  SVN migration requires the desktop app — skipping.');
-          results.push({ success: false, sourceUrl: rawUrl, error: 'SVN project (git 404) — use desktop app' });
+          log('  Git repository not found (404). This project may not have a Code tab.');
+          log('  → Create one at: https://sourceforge.net/p/' + (parsed ? parsed.projectName : '???') + '/admin/tools');
+          results.push({ success: false, sourceUrl: rawUrl, error: 'No git repo (404) — create Code tab on SF first' });
         } else {
           log('  Error: ' + msg);
           results.push({ success: false, sourceUrl: rawUrl, error: msg });
