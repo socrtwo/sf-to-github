@@ -168,7 +168,110 @@ window.MobileMigrate = (function () {
   // (the server uses native git, not isomorphic-git).
   var CORS_PROXY = 'https://cors.isomorphic-git.org';
 
+  // Check if the native JGit plugin is available (Capacitor Android/iOS build)
+  function hasNativeGit() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform &&
+              window.Capacitor.isNativePlatform() &&
+              window.Capacitor.Plugins && window.Capacitor.Plugins.NativeGit);
+  }
+
+  function getNativeGit() {
+    return window.Capacitor.Plugins.NativeGit;
+  }
+
+  // ─── Native JGit Migration (Android/iOS — supports SSH + HTTPS) ──────────
+
+  async function migrateGitRepoNative(sourceUrl, token, owner, repoName, isPrivate, log) {
+    var ng = getNativeGit();
+    var dirName = 'sf2gh-' + repoName + '-' + Date.now();
+
+    // Step 1: Create GitHub repository
+    log('Creating GitHub repository ' + owner + '/' + repoName + '...');
+    var repoData;
+    var exists = await repoExists(token, owner, repoName);
+    if (exists) {
+      log('Repository already exists on GitHub, pushing into it.');
+      repoData = { html_url: 'https://github.com/' + owner + '/' + repoName };
+    } else {
+      repoData = await createRepo(token, repoName, { isPrivate: isPrivate });
+      log('Repository created: ' + repoData.html_url);
+    }
+
+    // Step 2: Clone from SourceForge using native JGit (supports SSH + HTTPS)
+    log('Cloning from ' + sourceUrl + ' (native git) ...');
+    log('(Large repositories may take several minutes)');
+    await ng.clone({ url: sourceUrl, dir: dirName });
+    log('Clone complete.');
+
+    // Step 3: Discover branches and tags
+    var branchResult = await ng.listBranches({ dir: dirName, remote: 'origin' });
+    var tagResult = await ng.listTags({ dir: dirName });
+    var remoteBranches = branchResult.branches || [];
+    var tags = tagResult.tags || [];
+    log('Found ' + remoteBranches.length + ' branch(es) and ' + tags.length + ' tag(s)');
+
+    var githubUrl = 'https://github.com/' + owner + '/' + repoName + '.git';
+    var pushedSteps = [];
+
+    // Step 4: Push each branch
+    for (var bi = 0; bi < remoteBranches.length; bi++) {
+      var branch = remoteBranches[bi];
+      if (branch === 'HEAD') continue;
+      log('Pushing branch: ' + branch);
+      try {
+        await ng.push({
+          dir: dirName,
+          remoteUrl: githubUrl,
+          ref: 'refs/remotes/origin/' + branch,
+          remoteRef: 'refs/heads/' + branch,
+          force: true,
+          token: token,
+        });
+        pushedSteps.push('push:' + branch);
+      } catch (pushErr) {
+        log('Warning: could not push branch ' + branch + ': ' + (pushErr.message || pushErr));
+      }
+    }
+
+    // Step 5: Push each tag
+    for (var ti = 0; ti < tags.length; ti++) {
+      var tag = tags[ti];
+      log('Pushing tag: ' + tag);
+      try {
+        await ng.push({
+          dir: dirName,
+          remoteUrl: githubUrl,
+          ref: 'refs/tags/' + tag,
+          remoteRef: 'refs/tags/' + tag,
+          force: true,
+          token: token,
+        });
+        pushedSteps.push('tag:' + tag);
+      } catch (tagErr) {
+        log('Warning: could not push tag ' + tag + ': ' + (tagErr.message || tagErr));
+      }
+    }
+
+    // Step 6: Cleanup cloned repo from device storage
+    try { await ng.cleanup({ dir: dirName }); } catch (_) {}
+
+    log('Migration complete!');
+    return {
+      success: true,
+      scmType: 'git',
+      githubUrl: repoData.html_url,
+      githubRepo: owner + '/' + repoName,
+      steps: ['clone'].concat(pushedSteps),
+    };
+  }
+
+  // ─── isomorphic-git Migration (browser fallback) ─────────────────────────
+
   async function migrateGitRepo(sourceUrl, token, owner, repoName, isPrivate, log) {
+    // Prefer native JGit when available (supports SSH, no CORS issues)
+    if (hasNativeGit()) {
+      return migrateGitRepoNative(sourceUrl, token, owner, repoName, isPrivate, log);
+    }
     const { git, LightningFS, http } = getGitLibs();
 
     // Create a fresh IndexedDB-backed filesystem for this migration

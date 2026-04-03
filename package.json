@@ -1,6 +1,6 @@
 {
   "name": "sf2gh-migrator",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "Cross-platform app to migrate SourceForge projects to GitHub",
   "main": "electron/main.js",
   "scripts": {
@@ -36,7 +36,8 @@
     "electron": "^33.4.0",
     "electron-builder": "^25.1.8",
     "@capacitor/core": "^7.2.0",
-    "@capacitor/cli": "^7.2.0"
+    "@capacitor/cli": "^7.2.0",
+    "capacitor-native-git": "file:plugins/capacitor-native-git"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -1,0 +1,16 @@
+{
+  "name": "capacitor-native-git",
+  "version": "1.0.0",
+  "description": "Capacitor plugin for native git operations using JGit with SSH support",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "files": ["src/", "android/"],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^7.0.0"
+  }
+}
