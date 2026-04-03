@@ -8,6 +8,7 @@ const path = require('path');
 const { migrate, migrateBatch, planMigration } = require('./migrate');
 const { detect } = require('./detect');
 const { sanitizeRepoName } = require('./sanitize');
+const { populateSFCodeTab, listSFFiles } = require('./sf-files');
 const logger = require('./logger');
 
 const app = express();
@@ -127,6 +128,41 @@ app.post('/api/migrate/batch', async (req, res) => {
     res.json({ results });
   } catch (err) {
     logger.error(`Batch migration error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List files in a SF project's Files section
+app.post('/api/sf-files', async (req, res) => {
+  try {
+    const { projectName } = req.body;
+    if (!projectName) {
+      return res.status(400).json({ error: 'projectName is required' });
+    }
+    const files = await listSFFiles(projectName);
+    res.json({ projectName, files });
+  } catch (err) {
+    logger.error(`SF files error: ${err.message}`);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Populate an empty SF Code/git tab with files from the Files section
+app.post('/api/sf-populate', async (req, res) => {
+  try {
+    const { projectName, sfUsername } = req.body;
+    if (!projectName) {
+      return res.status(400).json({ error: 'projectName is required' });
+    }
+    if (!sfUsername) {
+      return res.status(400).json({ error: 'sfUsername is required' });
+    }
+    const result = await populateSFCodeTab(projectName, sfUsername, {
+      onLog: (msg) => logger.info(`[sf-populate] ${msg}`),
+    });
+    res.json(result);
+  } catch (err) {
+    logger.error(`SF populate error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });

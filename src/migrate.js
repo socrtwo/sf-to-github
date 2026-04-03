@@ -7,6 +7,7 @@ const os = require('os');
 const { detect, ScmType } = require('./detect');
 const { sanitizeRepoName, buildDescription } = require('./sanitize');
 const { gitMirrorCommands, svnMigrationCommands, workDirPath } = require('./commands');
+const { populateSFCodeTab } = require('./sf-files');
 const github = require('./github');
 const logger = require('./logger');
 
@@ -111,6 +112,24 @@ async function migrate(rawUrl, options = {}) {
   // Step 1: Detect SCM type
   logger.info(`Detecting SCM type for: ${rawUrl}`);
   const detected = await detect(rawUrl);
+
+  // If no git/svn found but sfUsername is provided, try populating from Files
+  if (detected.scmType === ScmType.UNKNOWN && options.sfUsername) {
+    logger.info(`No repo found for "${detected.projectName}" — attempting to populate from Files section`);
+    try {
+      const popResult = await populateSFCodeTab(detected.projectName, options.sfUsername, {
+        onLog: (msg) => logger.info(`[populate] ${msg}`),
+      });
+      if (popResult.success) {
+        logger.info(`Populated Code tab with ${popResult.filesCount} file(s), re-detecting...`);
+        // Re-detect after populating
+        const redetected = await detect(rawUrl);
+        Object.assign(detected, redetected);
+      }
+    } catch (popErr) {
+      logger.warn(`Populate failed: ${popErr.message}`);
+    }
+  }
 
   if (detected.scmType === ScmType.UNKNOWN) {
     throw new Error(

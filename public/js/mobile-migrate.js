@@ -301,8 +301,8 @@ window.MobileMigrate = (function () {
       log('Repository created: ' + repoData.html_url);
     }
 
-    // Step 2: Clone from SourceForge using native JGit (supports SSH + HTTPS)
-    log('[2/4] Cloning from ' + sourceUrl + ' (native git) ...');
+    // Clone from SourceForge using native JGit (supports SSH + HTTPS)
+    log('[3/5] Cloning from ' + sourceUrl + ' (native git) ...');
     log('(Large repositories may take several minutes)');
     await ng.clone({ url: sourceUrl, dir: dirName });
     log('Clone complete.');
@@ -318,7 +318,7 @@ window.MobileMigrate = (function () {
     var pushedSteps = [];
 
     // Push each branch to GitHub
-    log('[3/4] Pushing to GitHub...');
+    log('[4/5] Pushing to GitHub...');
     for (var bi = 0; bi < remoteBranches.length; bi++) {
       var branch = remoteBranches[bi];
       if (branch === 'HEAD') continue;
@@ -524,23 +524,28 @@ window.MobileMigrate = (function () {
       steps: [
         {
           step: 'check-sf-repo',
-          description: '[1/4] Check SourceForge git repo status (has code / empty / no Code tab)',
+          description: '[1/5] Check SourceForge git repo status (has code / empty / no Code tab)',
           command: 'GET /rest/p/' + parsed.projectName + '/',
         },
         {
-          step: 'create-repo',
-          description: '[2/4] Create GitHub repository: ' + owner + '/' + repoName,
-          command: 'GitHub API POST /user/repos {"name":"' + repoName + '"}',
+          step: 'populate-sf',
+          description: '[2/5] If empty: extract release files and push to SF Code tab',
+          command: 'Download files → extract → git push → SF Code tab',
         },
         {
           step: 'clone',
-          description: '[3/4] Clone all branches and tags from SourceForge',
+          description: '[3/5] Clone all branches and tags from SourceForge',
           command: (hasNativeGit() ? 'JGit' : 'isomorphic-git') + ' clone ' + gitUrl,
         },
         {
-          step: 'push',
-          description: '[4/4] Push all branches and tags to GitHub',
-          command: (hasNativeGit() ? 'JGit' : 'isomorphic-git') + ' push → github.com',
+          step: 'create-and-push',
+          description: '[4/5] Create GitHub repo and push all branches/tags',
+          command: 'GitHub API + ' + (hasNativeGit() ? 'JGit' : 'isomorphic-git') + ' push',
+        },
+        {
+          step: 'complete',
+          description: '[5/5] Migration complete',
+          command: 'Verify and clean up',
         },
       ],
     };
@@ -597,27 +602,54 @@ window.MobileMigrate = (function () {
           continue;
         }
 
+        var sfUser = options.sfUsername || '';
+
         if (repoStatus.status === 'empty') {
           log('  ⚠ Git repo exists but is empty.');
-          // Try to populate from Files section
-          log('  [1.5/4] Checking Files section for downloadable content...');
-          var sfFiles = await downloadSFFileList(projectName);
-          if (sfFiles.length > 0) {
-            log('  Found ' + sfFiles.length + ' file(s) in Files section.');
-            log('  Note: Files section contains release downloads (zips, etc.),');
-            log('  not source code. Push source to the Code tab manually first,');
-            log('  or continue to migrate the empty repo structure to GitHub.');
-          } else {
-            log('  No files found in Files section either.');
-            log('  The repo is empty — migrating empty repo structure to GitHub.');
+          log('  [1.5/5] Extracting release files and populating Code tab...');
+
+          // Try server-side populate (Electron/web with backend)
+          var populated = false;
+          if (!useClientSide || !clientSideMode) {
+            try {
+              var popRes = await fetch('/api/sf-populate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: projectName, sfUsername: sfUser }),
+              });
+              var popData = await popRes.json();
+              if (popData.success) {
+                log('  ✓ Populated Code tab with ' + popData.filesCount + ' file(s) from releases.');
+                populated = true;
+              } else {
+                log('  ⚠ Could not populate: ' + (popData.message || popData.error));
+              }
+            } catch (popErr) {
+              log('  ⚠ Server populate failed: ' + (popErr.message || popErr));
+            }
+          }
+
+          // Try native JGit populate for Android
+          if (!populated && hasNativeGit()) {
+            var sfFiles = await downloadSFFileList(projectName);
+            if (sfFiles.length > 0) {
+              log('  Found ' + sfFiles.length + ' file(s) in Files section.');
+              log('  Note: Native file extraction requires the desktop app.');
+              log('  Continuing with empty repo migration to GitHub.');
+            } else {
+              log('  No files found in Files section either.');
+            }
+          }
+
+          if (!populated) {
+            log('  Proceeding with empty repo → GitHub migration.');
           }
         } else {
           log('  ✓ Git repo has content.');
         }
 
         // ── Step 2: Clone from SourceForge ────────────────────────────
-        log('  [2/4] Cloning from SourceForge...');
-        var sfUser = options.sfUsername || '';
+        log('  [2/5] Cloning from SourceForge...');
         var gitUrl = getGitUrl(projectName, sfUser);
 
         var result = await migrateGitRepo(
@@ -629,8 +661,8 @@ window.MobileMigrate = (function () {
           function (msg) { log('  ' + msg); }
         );
 
-        // ── Step 3 & 4 are inside migrateGitRepo (push branches, push tags)
-        log('  [4/4] Migration complete for ' + projectName);
+        // ── Steps 3-4 are inside migrateGitRepo (push branches, push tags)
+        log('  [5/5] Migration complete for ' + projectName);
         results.push(Object.assign({ sourceUrl: rawUrl }, result));
 
       } catch (err) {
