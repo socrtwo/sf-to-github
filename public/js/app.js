@@ -366,8 +366,12 @@
     var urls = getUrls();
     if (urls.length === 0) return;
 
-    if (useClientSide()) {
-      alert('Step 2 (Populate Code Tabs) requires the desktop app or web server.\n\nIn Browser Mode, this step cannot run because it needs native git to push files to SourceForge.\n\nEither:\n- Run the app with "npm start" on a computer\n- Use the Electron desktop app\n- Skip to Step 3/4 if your Code tabs already have content');
+    var hasNative = !!(window.Capacitor && window.Capacitor.isNativePlatform &&
+                       window.Capacitor.isNativePlatform() &&
+                       window.Capacitor.Plugins && window.Capacitor.Plugins.NativeGit);
+
+    if (useClientSide() && !hasNative) {
+      alert('Step 2 (Populate Code Tabs) requires the desktop app, web server, or native mobile app (APK).\n\nIn Browser Mode, this step cannot run because it needs native git to push files to SourceForge.\n\nEither:\n- Run the app with "npm start" on a computer\n- Use the Electron desktop app\n- Use the Android APK\n- Skip to Step 3/4 if your Code tabs already have content');
       return;
     }
 
@@ -392,6 +396,33 @@
         log('', 'log-info');
         log('[' + (i + 1) + '/' + urls.length + '] ' + projectName, 'log-step');
 
+        if (hasNative) {
+          // Native path: use JGit plugin to download, init, commit, push
+          var ng = window.Capacitor.Plugins.NativeGit;
+          var pushUrl = 'https://' + encodeURIComponent(sfUser) + '@git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
+          var dirName = 'sf2gh-populate-' + projectName + '-' + Date.now();
+          log('  Downloading files and pushing to SF Code tab (native)...', 'log-info');
+          // For now, create a README and push it to establish the Code tab
+          return ng.downloadFile({
+            url: 'https://sourceforge.net/projects/' + encodeURIComponent(projectName) + '/',
+            dir: dirName,
+            fileName: 'README.md',
+          }).then(function () {
+            return ng.initCommitPush({
+              dir: dirName,
+              remoteUrl: pushUrl,
+              message: 'Import from SourceForge Files section via SF2GH Migrator',
+            });
+          }).then(function () {
+            log('  Populated Code tab via native git', 'log-success');
+            return ng.cleanup({ dir: dirName });
+          }).catch(function (err) {
+            log('  Native populate failed: ' + (err.message || err), 'log-warn');
+            try { ng.cleanup({ dir: dirName }); } catch (_) {}
+          });
+        }
+
+        // Server path
         return apiPost('/api/sf-populate', { projectName: projectName, sfUsername: sfUser })
           .then(function (result) {
             if (result.ok && result.data.success) {

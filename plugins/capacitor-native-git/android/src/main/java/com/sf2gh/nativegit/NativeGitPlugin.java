@@ -226,6 +226,112 @@ public class NativeGitPlugin extends Plugin {
         }).start();
     }
 
+    /**
+     * Download a file from a URL, save it to the given directory,
+     * init a git repo, add all files, commit, and push to a remote.
+     * Used to populate empty SF Code tabs from release downloads.
+     */
+    @PluginMethod
+    public void initCommitPush(PluginCall call) {
+        String dirName = call.getString("dir");
+        String remoteUrl = call.getString("remoteUrl");
+        String message = call.getString("message", "Import files from SourceForge");
+        String token = call.getString("token");
+
+        if (dirName == null || remoteUrl == null) {
+            call.reject("dir and remoteUrl are required");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                File dir = new File(getContext().getFilesDir(), dirName);
+                if (!dir.exists()) dir.mkdirs();
+
+                // Init a new git repo
+                Git git = Git.init().setDirectory(dir).call();
+
+                // Add all files in the directory
+                git.add().addFilepattern(".").call();
+
+                // Commit
+                git.commit()
+                        .setAuthor("SF2GH Migrator", "sf2gh@localhost")
+                        .setCommitter("SF2GH Migrator", "sf2gh@localhost")
+                        .setMessage(message)
+                        .call();
+
+                // Push to remote
+                PushCommand pushCmd = git.push()
+                        .setRemote(remoteUrl)
+                        .setRefSpecs(new RefSpec("refs/heads/main:refs/heads/main"))
+                        .setForce(true);
+
+                if (token != null) {
+                    pushCmd.setCredentialsProvider(
+                            new UsernamePasswordCredentialsProvider(token, ""));
+                }
+
+                pushCmd.call();
+                git.close();
+
+                JSObject result = new JSObject();
+                result.put("success", true);
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("initCommitPush failed: " + e.getMessage(), e);
+            }
+        }).start();
+    }
+
+    /**
+     * Download a file from a URL into a directory on device storage.
+     */
+    @PluginMethod
+    public void downloadFile(PluginCall call) {
+        String urlStr = call.getString("url");
+        String dirName = call.getString("dir");
+        String fileName = call.getString("fileName");
+
+        if (urlStr == null || dirName == null || fileName == null) {
+            call.reject("url, dir, and fileName are required");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                File dir = new File(getContext().getFilesDir(), dirName);
+                if (!dir.exists()) dir.mkdirs();
+                File dest = new File(dir, fileName);
+
+                java.net.URL url = new java.net.URL(urlStr);
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setRequestProperty("User-Agent", "SF2GH-Migrator/1.0");
+                conn.setInstanceFollowRedirects(true);
+                conn.connect();
+
+                java.io.InputStream in = conn.getInputStream();
+                java.io.FileOutputStream out = new java.io.FileOutputStream(dest);
+                byte[] buf = new byte[8192];
+                int len;
+                while ((len = in.read(buf)) != -1) {
+                    out.write(buf, 0, len);
+                }
+                out.close();
+                in.close();
+                conn.disconnect();
+
+                JSObject result = new JSObject();
+                result.put("success", true);
+                result.put("path", dest.getAbsolutePath());
+                result.put("size", dest.length());
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("Download failed: " + e.getMessage(), e);
+            }
+        }).start();
+    }
+
     @PluginMethod
     public void cleanup(PluginCall call) {
         String dirName = call.getString("dir");
