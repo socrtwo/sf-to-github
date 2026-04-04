@@ -7,8 +7,14 @@
   const urlsInput = document.getElementById('sourceUrls');
   const orgInput = document.getElementById('targetOrg');
   const privateCheck = document.getElementById('privateRepos');
+  const renamePosition = document.getElementById('renamePosition');
+  const renameInput = document.getElementById('repoRename');
   const btnDryRun = document.getElementById('btnDryRun');
   const btnMigrate = document.getElementById('btnMigrate');
+  const btnCheckCodeTabs = document.getElementById('btnCheckCodeTabs');
+  const btnPopulateCode = document.getElementById('btnPopulateCode');
+  const btnAutomate = document.getElementById('btnAutomate');
+  const codeTabResults = document.getElementById('codeTabResults');
   const outputSection = document.getElementById('outputSection');
   const outputLog = document.getElementById('outputLog');
   const healthStatus = document.getElementById('healthStatus');
@@ -29,10 +35,29 @@
                          window.Capacitor.isNativePlatform());
 
   // Whether to use the client-side (isomorphic-git) path instead of the server API.
-  // Starts true for native app; may flip to true for web if server is unreachable.
   let clientSideMode = isNativeApp;
 
   function useClientSide() { return clientSideMode; }
+
+  // Get SF username from profile input
+  function getSfUsername() {
+    var sfUser = sfProfileInput.value.trim();
+    if (sfUser && sfUser.indexOf('/') !== -1) {
+      var m = sfUser.match(/(?:u(?:sers?)?|p)\/([^/?#\s]+)/i);
+      if (m) sfUser = m[1];
+    }
+    return sfUser || '';
+  }
+
+  // Apply repo rename prefix/suffix
+  function applyRename(name) {
+    var pos = renamePosition.value;
+    var fix = renameInput.value.trim();
+    if (!fix || pos === 'none') return name;
+    if (pos === 'prefix') return fix + name;
+    if (pos === 'suffix') return name + fix;
+    return name;
+  }
 
   // ─── Help modal ───────────────────────────────────────────────────────────
 
@@ -62,8 +87,12 @@
 
   function updateButtons() {
     var hasUrls = urlsInput.value.trim().length > 0;
+    var hasToken = tokenInput.value.trim().length > 0;
+    btnCheckCodeTabs.disabled = !hasUrls;
+    btnPopulateCode.disabled = !hasUrls;
     btnDryRun.disabled = !hasUrls;
-    btnMigrate.disabled = !hasUrls || !tokenInput.value.trim();
+    btnMigrate.disabled = !hasUrls || !hasToken;
+    btnAutomate.disabled = !hasUrls || !hasToken;
   }
   tokenInput.addEventListener('input', updateButtons);
   urlsInput.addEventListener('input', updateButtons);
@@ -228,7 +257,154 @@
     });
   }
 
-  // ─── Dry Run ──────────────────────────────────────────────────────────────
+  // ─── Step 1: Check Code Tabs ─────────────────────────────────────────────
+
+  btnCheckCodeTabs.addEventListener('click', function () {
+    var urls = getUrls();
+    if (urls.length === 0) return;
+
+    clearLog();
+    log('=== CHECKING CODE TABS ===', 'log-header');
+    btnCheckCodeTabs.classList.add('loading');
+    btnCheckCodeTabs.disabled = true;
+
+    var allHaveCode = true;
+    var missingTabs = [];
+    var completed = 0;
+
+    urls.forEach(function (url, i) {
+      var projectName;
+      try {
+        var sfMatch = url.match(/sourceforge\.net\/(?:projects?|p)\/([^/?#]+)/i);
+        projectName = sfMatch ? sfMatch[1] : url;
+      } catch (_) { projectName = url; }
+
+      // Use the client-side check if available
+      if (useClientSide() && window.MobileMigrate) {
+        // Client-side check via REST API
+        var checkUrl = 'https://sourceforge.net/rest/p/' + encodeURIComponent(projectName) + '/code/';
+        fetch(checkUrl, { headers: { 'Accept': 'application/json' } })
+          .then(function (res) {
+            if (res.ok) {
+              log('[' + (i + 1) + '/' + urls.length + '] ' + projectName + ' — Code tab exists', 'log-success');
+            } else {
+              allHaveCode = false;
+              missingTabs.push(projectName);
+              log('[' + (i + 1) + '/' + urls.length + '] ' + projectName + ' — No Code tab', 'log-error');
+            }
+          })
+          .catch(function () {
+            allHaveCode = false;
+            missingTabs.push(projectName);
+            log('[' + (i + 1) + '/' + urls.length + '] ' + projectName + ' — Could not check', 'log-warn');
+          })
+          .finally(finishCheck);
+      } else {
+        apiPost('/api/detect', { url: url })
+          .then(function (result) {
+            if (result.ok && result.data.scmType !== 'unknown') {
+              log('[' + (i + 1) + '/' + urls.length + '] ' + projectName + ' — ' + result.data.scmType.toUpperCase() + ' repo found', 'log-success');
+            } else {
+              allHaveCode = false;
+              missingTabs.push(projectName);
+              log('[' + (i + 1) + '/' + urls.length + '] ' + projectName + ' — No Code tab found', 'log-error');
+            }
+          })
+          .catch(function () {
+            allHaveCode = false;
+            missingTabs.push(projectName);
+            log('[' + (i + 1) + '/' + urls.length + '] ' + projectName + ' — Check failed', 'log-warn');
+          })
+          .finally(finishCheck);
+      }
+
+      function finishCheck() {
+        completed++;
+        if (completed < urls.length) return;
+
+        log('', 'log-info');
+        codeTabResults.hidden = false;
+
+        if (allHaveCode) {
+          codeTabResults.innerHTML = '<div class="results-panel success"><strong>All ' + urls.length + ' project(s) have Code tabs.</strong> Proceed to Step 2.</div>';
+          log('All projects have Code tabs!', 'log-success');
+        } else {
+          var html = '<div class="results-panel warning">';
+          html += '<strong>' + missingTabs.length + ' project(s) need a Code tab created:</strong>';
+          html += '<ul>';
+          missingTabs.forEach(function (name) {
+            html += '<li><a href="https://sourceforge.net/p/' + encodeURIComponent(name) + '/admin/tools" target="_blank" rel="noopener">' + name + ' — Create Code Tab</a></li>';
+          });
+          html += '</ul>';
+          html += '<p style="margin-top:12px"><strong>How to add a Code tab:</strong></p>';
+          html += '<ol>';
+          html += '<li>Click the link above to open the project\'s Admin &rarr; Tools page</li>';
+          html += '<li>Find the "Available Tools" section</li>';
+          html += '<li>Click <strong>"Git"</strong> to add a Git Code tab</li>';
+          html += '<li>Click <strong>"Save"</strong></li>';
+          html += '<li>Come back here and re-run this check</li>';
+          html += '</ol>';
+          html += '</div>';
+          codeTabResults.innerHTML = html;
+          log(missingTabs.length + ' project(s) need Code tabs — see links above.', 'log-warn');
+        }
+
+        log('=== CHECK COMPLETE ===', 'log-header');
+        btnCheckCodeTabs.classList.remove('loading');
+        updateButtons();
+      }
+    });
+  });
+
+  // ─── Step 2: Populate Empty Code Tabs ─────────────────────────────────────
+
+  btnPopulateCode.addEventListener('click', function () {
+    var urls = getUrls();
+    if (urls.length === 0) return;
+    var sfUser = getSfUsername();
+    if (!sfUser) {
+      alert('Enter your SourceForge username in the "Find by SourceForge Profile" field first.');
+      sfProfileInput.focus();
+      return;
+    }
+
+    clearLog();
+    log('=== POPULATING CODE TABS ===', 'log-header');
+    log('SF Username: ' + sfUser, 'log-info');
+    btnPopulateCode.classList.add('loading');
+    btnPopulateCode.disabled = true;
+
+    var chain = Promise.resolve();
+    urls.forEach(function (url, i) {
+      chain = chain.then(function () {
+        var sfMatch = url.match(/sourceforge\.net\/(?:projects?|p)\/([^/?#]+)/i);
+        var projectName = sfMatch ? sfMatch[1] : url;
+        log('', 'log-info');
+        log('[' + (i + 1) + '/' + urls.length + '] ' + projectName, 'log-step');
+
+        return apiPost('/api/sf-populate', { projectName: projectName, sfUsername: sfUser })
+          .then(function (result) {
+            if (result.ok && result.data.success) {
+              log('  Populated with ' + result.data.filesCount + ' file(s)', 'log-success');
+            } else {
+              log('  ' + (result.data.message || result.data.error || 'Could not populate'), 'log-warn');
+            }
+          })
+          .catch(function (err) {
+            log('  Error: ' + err.message, 'log-error');
+          });
+      });
+    });
+
+    chain.finally(function () {
+      log('', 'log-info');
+      log('=== POPULATE COMPLETE ===', 'log-header');
+      btnPopulateCode.classList.remove('loading');
+      updateButtons();
+    });
+  });
+
+  // ─── Step 3: Dry Run ──────────────────────────────────────────────────────
 
   btnDryRun.addEventListener('click', function () {
     var urls = getUrls();
@@ -237,6 +413,9 @@
     clearLog();
     log('=== DRY RUN PREVIEW ===', 'log-header');
     log('Planning migration for ' + urls.length + ' URL(s)...', 'log-info');
+    if (renamePosition.value !== 'none' && renameInput.value.trim()) {
+      log('Repo rename: ' + renamePosition.value + ' "' + renameInput.value.trim() + '"', 'log-info');
+    }
 
     btnDryRun.classList.add('loading');
     btnDryRun.disabled = true;
@@ -245,27 +424,22 @@
       var completed = 0;
       urls.forEach(function (url, i) {
         var owner = orgInput.value.trim() || undefined;
-        var sfU = sfProfileInput.value.trim();
-        if (sfU && sfU.indexOf('/') !== -1) {
-          var mu = sfU.match(/(?:u(?:sers?)?|p)\/([^/?#\s]+)/i);
-          if (mu) sfU = mu[1];
-        }
+        var sfU = getSfUsername();
         window.MobileMigrate.planMigration(url, { owner: owner, sfUsername: sfU || undefined })
           .then(function (plan) {
+            var displayName = applyRename(plan.projectName);
             log('', 'log-info');
             log('[' + (i + 1) + '/' + urls.length + '] ' + url, 'log-step');
-            log('  Project: ' + plan.projectName, 'log-info');
+            log('  Project: ' + plan.projectName + (displayName !== plan.projectName ? ' -> ' + displayName : ''), 'log-info');
             log('  SCM Type: ' + plan.scmType.toUpperCase(), 'log-info');
             log('  Source: ' + plan.sourceUrl, 'log-info');
             log('  Target: ' + plan.githubUrl, 'log-info');
             log('  Steps:', 'log-info');
             plan.steps.forEach(function (step, j) {
               log('    ' + (j + 1) + '. [' + step.step + '] ' + step.description, 'log-info');
-              log('       $ ' + step.command, 'log-info');
             });
             var isSvn = plan.steps.some(function (s) { return s.step === 'unsupported'; });
-            log(isSvn ? '  Status: Not supported in browser/mobile mode ✗' : '  Status: Ready to migrate ✓',
-                isSvn ? 'log-warn' : 'log-success');
+            log(isSvn ? '  Status: Not supported in browser/mobile mode' : '  Status: Ready to migrate', isSvn ? 'log-warn' : 'log-success');
           })
           .catch(function (err) {
             log('[' + (i + 1) + '] Error: ' + err.message, 'log-error');
@@ -294,16 +468,12 @@
             return;
           }
           var plan = result.data;
-          log('  Project: ' + plan.projectName, 'log-info');
+          var displayName = applyRename(plan.projectName);
+          log('  Project: ' + plan.projectName + (displayName !== plan.projectName ? ' -> ' + displayName : ''), 'log-info');
           log('  SCM Type: ' + plan.scmType.toUpperCase(), 'log-info');
           log('  Source: ' + plan.sourceUrl, 'log-info');
           log('  Target: ' + plan.githubUrl, 'log-info');
-          log('  Steps:', 'log-info');
-          plan.steps.forEach(function (step, j) {
-            log('    ' + (j + 1) + '. [' + step.step + '] ' + step.description, 'log-info');
-            log('       $ ' + step.command, 'log-info');
-          });
-          log('  Status: Ready to migrate ✓', 'log-success');
+          log('  Status: Ready to migrate', 'log-success');
         })
         .catch(function (err) {
           log('[' + (i + 1) + '] Error: ' + err.message, 'log-error');
@@ -320,16 +490,12 @@
     });
   });
 
-  // ─── Migrate ──────────────────────────────────────────────────────────────
+  // ─── Step 4: Migrate ──────────────────────────────────────────────────────
 
-  btnMigrate.addEventListener('click', function () {
+  function runMigration() {
     var urls = getUrls();
     var token = tokenInput.value.trim();
     if (urls.length === 0 || !token) return;
-
-    if (!confirm(
-      'This will create ' + urls.length + ' repository(ies) on GitHub and migrate the source code. Continue?'
-    )) return;
 
     clearLog();
     log('=== MIGRATION STARTED ===', 'log-header');
@@ -338,14 +504,10 @@
     btnMigrate.classList.add('loading');
     btnMigrate.disabled = true;
     btnDryRun.disabled = true;
+    btnAutomate.disabled = true;
 
     if (useClientSide() && window.MobileMigrate) {
-      // Extract SF username from the profile input for HTTPS clone URLs
-      var sfUser = sfProfileInput.value.trim();
-      if (sfUser && sfUser.indexOf('/') !== -1) {
-        var m = sfUser.match(/(?:u(?:sers?)?|p)\/([^/?#\s]+)/i);
-        if (m) sfUser = m[1];
-      }
+      var sfUser = getSfUsername();
       var options = {
         org: orgInput.value.trim() || undefined,
         isPrivate: privateCheck.checked,
@@ -357,7 +519,7 @@
         if (/error/i.test(msg) || /failed/i.test(msg)) cls = 'log-error';
         else if (/warning|tip|not supported/i.test(msg)) cls = 'log-warn';
         else if (/complete|success|created/i.test(msg)) cls = 'log-success';
-        else if (/^\s*─{3}/.test(msg)) cls = 'log-step';
+        else if (/^\s*[═─]{3}/.test(msg)) cls = 'log-step';
         log(msg, cls);
       })
         .then(function (result) {
@@ -367,8 +529,8 @@
               log('[' + (i + 1) + '/' + urls.length + '] ' + (r.githubRepo || r.sourceUrl), 'log-step');
               log('  SCM: ' + r.scmType.toUpperCase(), 'log-info');
               log('  GitHub: ' + r.githubUrl, 'log-success');
-              log('  Steps completed: ' + r.steps.join(' → '), 'log-info');
-              log('  Status: Migration successful ✓', 'log-success');
+              log('  Steps completed: ' + r.steps.join(' -> '), 'log-info');
+              log('  Status: Migration successful', 'log-success');
             }
           });
           var succeeded = result.results.filter(function (r) { return r.success; }).length;
@@ -394,6 +556,7 @@
       token: token,
       org: orgInput.value.trim() || undefined,
       isPrivate: privateCheck.checked,
+      sfUsername: getSfUsername() || undefined,
     })
       .then(function (result) {
         if (!result.ok) {
@@ -406,12 +569,12 @@
           if (r.success) {
             log('  SCM: ' + r.scmType.toUpperCase(), 'log-info');
             log('  GitHub: ' + r.githubUrl, 'log-success');
-            log('  Steps completed: ' + r.steps.join(' → '), 'log-info');
-            log('  Status: Migration successful ✓', 'log-success');
+            log('  Steps completed: ' + r.steps.join(' -> '), 'log-info');
+            log('  Status: Migration successful', 'log-success');
           } else {
             log('  Source: ' + r.sourceUrl, 'log-info');
             log('  Error: ' + r.error, 'log-error');
-            log('  Status: Migration failed ✗', 'log-error');
+            log('  Status: Migration failed', 'log-error');
           }
         });
         var succeeded = result.data.results.filter(function (r) { return r.success; }).length;
@@ -429,6 +592,67 @@
         btnMigrate.classList.remove('loading');
         updateButtons();
       });
+  }
+
+  btnMigrate.addEventListener('click', function () {
+    var urls = getUrls();
+    var token = tokenInput.value.trim();
+    if (urls.length === 0 || !token) return;
+    if (!confirm('This will create ' + urls.length + ' repository(ies) on GitHub and migrate the source code. Continue?')) return;
+    runMigration();
+  });
+
+  // ─── Automate All (Steps 2-4) ────────────────────────────────────────────
+
+  btnAutomate.addEventListener('click', function () {
+    var urls = getUrls();
+    var token = tokenInput.value.trim();
+    if (urls.length === 0 || !token) return;
+    if (!confirm('This will:\n1. Populate empty Code tabs from SF Files\n2. Migrate all repos to GitHub\n\nContinue?')) return;
+
+    clearLog();
+    log('=== AUTOMATED MIGRATION ===', 'log-header');
+
+    btnAutomate.classList.add('loading');
+    btnAutomate.disabled = true;
+    btnMigrate.disabled = true;
+    btnPopulateCode.disabled = true;
+
+    // Step 2: Populate first
+    var sfUser = getSfUsername();
+    var populateChain = Promise.resolve();
+
+    if (sfUser && !useClientSide()) {
+      log('--- Step 2: Populating empty Code tabs ---', 'log-step');
+      urls.forEach(function (url, i) {
+        populateChain = populateChain.then(function () {
+          var sfMatch = url.match(/sourceforge\.net\/(?:projects?|p)\/([^/?#]+)/i);
+          var projectName = sfMatch ? sfMatch[1] : url;
+          return apiPost('/api/sf-populate', { projectName: projectName, sfUsername: sfUser })
+            .then(function (result) {
+              if (result.ok && result.data.success) {
+                log('  ' + projectName + ': populated ' + result.data.filesCount + ' file(s)', 'log-success');
+              } else {
+                log('  ' + projectName + ': ' + (result.data.message || 'skipped'), 'log-info');
+              }
+            })
+            .catch(function () {
+              log('  ' + projectName + ': populate skipped', 'log-info');
+            });
+        });
+      });
+    }
+
+    // Then Step 4: Migrate
+    populateChain.then(function () {
+      log('', 'log-info');
+      log('--- Step 4: Migrating to GitHub ---', 'log-step');
+      runMigration();
+    }).catch(function (err) {
+      log('Automation failed: ' + err.message, 'log-error');
+      btnAutomate.classList.remove('loading');
+      updateButtons();
+    });
   });
 
   // Register Service Worker
