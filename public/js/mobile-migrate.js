@@ -175,7 +175,7 @@ window.MobileMigrate = (function () {
   // Downloads files from SF Files section, creates a git repo in IndexedDB,
   // commits them, and pushes to the SF Code tab via HTTPS.
 
-  async function populateCodeTab(projectName, sfUsername, log) {
+  async function populateCodeTab(projectName, sfUsername, sfPassword, log) {
     var { git, LightningFS, http } = getGitLibs();
 
     log('Listing files in SF Files section...');
@@ -254,7 +254,7 @@ window.MobileMigrate = (function () {
       remoteRef: 'main',
       force: true,
       onAuth: function () {
-        return { username: sfUsername, password: '' };
+        return { username: sfUsername, password: sfPassword };
       },
     });
 

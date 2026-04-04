@@ -19,6 +19,8 @@
   const outputLog = document.getElementById('outputLog');
   const healthStatus = document.getElementById('healthStatus');
   const sfProfileInput = document.getElementById('sfProfile');
+  const sfPasswordInput = document.getElementById('sfPassword');
+  const toggleSfPasswordBtn = document.getElementById('toggleSfPassword');
   const btnLookupProfile = document.getElementById('btnLookupProfile');
   const profileProjectsSection = document.getElementById('profileProjects');
   const profileProjectsLabel = document.getElementById('profileProjectsLabel');
@@ -81,6 +83,10 @@
 
   toggleTokenBtn.addEventListener('click', function () {
     tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
+  });
+
+  toggleSfPasswordBtn.addEventListener('click', function () {
+    sfPasswordInput.type = sfPasswordInput.type === 'password' ? 'text' : 'password';
   });
 
   // ─── Button state ─────────────────────────────────────────────────────────
@@ -388,6 +394,12 @@
       sfProfileInput.focus();
       return;
     }
+    var sfPass = sfPasswordInput.value;
+    if (!sfPass) {
+      alert('Enter your SourceForge password. It is needed to push files to the SF Code tab via HTTPS.');
+      sfPasswordInput.focus();
+      return;
+    }
 
     clearLog();
     log('=== POPULATING CODE TABS ===', 'log-header');
@@ -406,7 +418,7 @@
         // On native mobile or browser with MobileMigrate, use isomorphic-git
         // (CapacitorHttp patches fetch to bypass CORS on native)
         if (useClientSide() && window.MobileMigrate) {
-          return window.MobileMigrate.populateCodeTab(projectName, sfUser, function (msg) {
+          return window.MobileMigrate.populateCodeTab(projectName, sfUser, sfPass, function (msg) {
             log('  ' + msg, 'log-info');
           }).then(function (result) {
             if (result && result.success) {

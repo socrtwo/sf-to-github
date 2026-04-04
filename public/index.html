@@ -75,6 +75,16 @@
           </div>
           <small class="help-text">Enter a SourceForge profile URL or username to auto-discover all their repositories.</small>
         </div>
+        <div class="form-group">
+          <label for="sfPassword">SourceForge Password <span class="label-hint">(needed for Step 2 — push to Code tab)</span></label>
+          <div class="input-wrapper">
+            <input type="password" id="sfPassword" placeholder="Your SourceForge account password" autocomplete="off">
+            <button type="button" class="btn-icon" id="toggleSfPassword" title="Toggle visibility">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+          <small class="help-text">Required only for Step 2 (pushing files to SF Code tabs). Not stored anywhere.</small>
+        </div>
 
         <!-- Project picker (hidden until lookup succeeds) -->
         <div id="profileProjects" hidden>

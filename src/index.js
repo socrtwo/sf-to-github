@@ -150,7 +150,7 @@ app.post('/api/sf-files', async (req, res) => {
 // Populate an empty SF Code/git tab with files from the Files section
 app.post('/api/sf-populate', async (req, res) => {
   try {
-    const { projectName, sfUsername } = req.body;
+    const { projectName, sfUsername, sfPassword } = req.body;
     if (!projectName) {
       return res.status(400).json({ error: 'projectName is required' });
     }
@@ -158,6 +158,7 @@ app.post('/api/sf-populate', async (req, res) => {
       return res.status(400).json({ error: 'sfUsername is required' });
     }
     const result = await populateSFCodeTab(projectName, sfUsername, {
+      sfPassword,
       onLog: (msg) => logger.info(`[sf-populate] ${msg}`),
     });
     res.json(result);

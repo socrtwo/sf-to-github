@@ -311,8 +311,9 @@ async function populateSFCodeTab(projectName, sfUsername, opts = {}) {
     ], { cwd: extractDir });
 
     // Step 6: Push to SF Code tab via HTTPS
-    const pushUrl = `https://${encodeURIComponent(sfUsername)}@git.code.sf.net/p/${encodeURIComponent(projectName)}/code`;
-    log(`Pushing to SF Code tab: ${pushUrl.replace(/\/\/[^@]+@/, '//***@')}`);
+    const sfPass = opts.sfPassword ? `:${encodeURIComponent(opts.sfPassword)}` : '';
+    const pushUrl = `https://${encodeURIComponent(sfUsername)}${sfPass}@git.code.sf.net/p/${encodeURIComponent(projectName)}/code`;
+    log(`Pushing to SF Code tab: https://${sfUsername}@git.code.sf.net/p/${projectName}/code`);
     await runCmd('git', ['remote', 'add', 'origin', pushUrl], { cwd: extractDir });
     await runCmd('git', ['push', '-u', 'origin', 'main'], { cwd: extractDir });
     log('Successfully populated SF Code tab!');
