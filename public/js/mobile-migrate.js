@@ -63,6 +63,12 @@ window.MobileMigrate = (function () {
     return 'https://' + user + 'git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
   }
 
+  function getGitRoUrl(projectName) {
+    // Anonymous read-only git protocol — most reliable for cloning, no auth needed:
+    //   git://git.code.sf.net/p/PROJECT/code
+    return 'git://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
+  }
+
   function getSshGitUrl(projectName, sfUsername) {
     var user = sfUsername ? encodeURIComponent(sfUsername) + '@' : '';
     return 'ssh://' + user + 'git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
@@ -650,7 +656,9 @@ window.MobileMigrate = (function () {
 
         // ── Step 2: Clone from SourceForge ────────────────────────────
         log('  [2/5] Cloning from SourceForge...');
-        var gitUrl = getGitUrl(projectName, sfUser);
+        // Prefer git:// (anonymous RO, most reliable) for cloning.
+        // Native JGit uses HTTPS (git:// not supported by JGit).
+        var gitUrl = hasNativeGit() ? getGitUrl(projectName, sfUser) : getGitRoUrl(projectName);
 
         var result = await migrateGitRepo(
           gitUrl,
