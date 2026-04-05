@@ -186,10 +186,18 @@ jobs:
       - name: Package web app
         run: |
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          # Create a simple start script
+          echo '#!/bin/sh' > start.sh
+          echo 'node src/index.js' >> start.sh
+          chmod +x start.sh
+          echo '@echo off' > start.bat
+          echo 'node src\index.js' >> start.bat
+          echo 'pause' >> start.bat
           zip -r "SF2GH-Migrator-${VERSION}-web.zip" \
             src/ public/ package.json package-lock.json README.md LICENSE \
-            node_modules/ \
-            --exclude "node_modules/.cache/*"
+            node_modules/ start.sh start.bat \
+            --exclude "node_modules/.cache/*" \
+            --exclude "node_modules/.package-lock.json"
       - uses: actions/upload-artifact@v4
         with:
           name: web
