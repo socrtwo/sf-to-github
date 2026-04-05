@@ -19,8 +19,6 @@
   const outputLog = document.getElementById('outputLog');
   const healthStatus = document.getElementById('healthStatus');
   const sfProfileInput = document.getElementById('sfProfile');
-  const sfPasswordInput = document.getElementById('sfPassword');
-  const toggleSfPasswordBtn = document.getElementById('toggleSfPassword');
   const btnLookupProfile = document.getElementById('btnLookupProfile');
   const profileProjectsSection = document.getElementById('profileProjects');
   const profileProjectsLabel = document.getElementById('profileProjectsLabel');
@@ -85,9 +83,6 @@
     tokenInput.type = tokenInput.type === 'password' ? 'text' : 'password';
   });
 
-  toggleSfPasswordBtn.addEventListener('click', function () {
-    sfPasswordInput.type = sfPasswordInput.type === 'password' ? 'text' : 'password';
-  });
 
   // ─── Button state ─────────────────────────────────────────────────────────
 
@@ -376,77 +371,67 @@
     });
   });
 
-  // ─── Step 2: Populate Empty Code Tabs ─────────────────────────────────────
+  // ─── Step 2: Upload SF Files to GitHub ─────────────────────────────────────
 
   btnPopulateCode.addEventListener('click', function () {
     var urls = getUrls();
-    if (urls.length === 0) return;
-
-    // Step 2 requires either a server or MobileMigrate (isomorphic-git)
-    if (useClientSide() && !window.MobileMigrate) {
-      alert('Step 2 (Populate Code Tabs) requires an internet connection to load the git engine.\n\nPlease reload the page and try again.');
+    var token = tokenInput.value.trim();
+    if (urls.length === 0 || !token) {
+      alert('Enter your GitHub token and add SourceForge URLs first.');
       return;
     }
 
-    var sfUser = getSfUsername();
-    if (!sfUser) {
-      alert('Enter your SourceForge username in the "Find by SourceForge Profile" field first.');
-      sfProfileInput.focus();
-      return;
-    }
-    var sfPass = sfPasswordInput.value;
-    if (!sfPass) {
-      alert('Enter your SourceForge password. It is needed to push files to the SF Code tab via HTTPS.');
-      sfPasswordInput.focus();
-      return;
-    }
+    if (!confirm('This will create GitHub repos and upload files from SF Files section.\n\n' + urls.length + ' project(s) will be processed. Continue?')) return;
 
     clearLog();
-    log('=== POPULATING CODE TABS ===', 'log-header');
-    log('SF Username: ' + sfUser, 'log-info');
+    log('=== UPLOADING SF FILES TO GITHUB ===', 'log-header');
     btnPopulateCode.classList.add('loading');
     btnPopulateCode.disabled = true;
 
-    var chain = Promise.resolve();
-    urls.forEach(function (url, i) {
-      chain = chain.then(function () {
-        var sfMatch = url.match(/sourceforge\.net\/(?:projects?|p)\/([^/?#]+)/i);
-        var projectName = sfMatch ? sfMatch[1] : url;
-        log('', 'log-info');
-        log('[' + (i + 1) + '/' + urls.length + '] ' + projectName, 'log-step');
+    // Get GitHub owner
+    var ownerPromise = fetch('https://api.github.com/user', {
+      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' },
+    }).then(function (r) { return r.json(); });
 
-        // On native mobile or browser with MobileMigrate, use isomorphic-git
-        // (CapacitorHttp patches fetch to bypass CORS on native)
-        if (useClientSide() && window.MobileMigrate) {
-          return window.MobileMigrate.populateCodeTab(projectName, sfUser, sfPass, function (msg) {
-            log('  ' + msg, 'log-info');
-          }).then(function (result) {
-            if (result && result.success) {
-              log('  Populated with ' + result.filesCount + ' file(s)', 'log-success');
-            }
-          }).catch(function (err) {
-            log('  Populate failed: ' + (err.message || err), 'log-warn');
-          });
-        }
+    ownerPromise.then(function (user) {
+      var owner = orgInput.value.trim() || user.login;
+      log('Signed in as: ' + user.login, 'log-info');
 
-        // Server path (Electron / npm start)
-        return apiPost('/api/sf-populate', { projectName: projectName, sfUsername: sfUser })
-          .then(function (result) {
-            if (result.ok && result.data.success) {
-              log('  Populated with ' + result.data.filesCount + ' file(s)', 'log-success');
-            } else {
-              log('  ' + (result.data.message || result.data.error || 'Could not populate'), 'log-warn');
-            }
-          })
-          .catch(function (err) {
-            log('  Error: ' + err.message, 'log-error');
-          });
+      var chain = Promise.resolve();
+      urls.forEach(function (url, i) {
+        chain = chain.then(function () {
+          var sfMatch = url.match(/sourceforge\.net\/(?:projects?|p)\/([^/?#]+)/i);
+          var projectName = sfMatch ? sfMatch[1] : url;
+          var repoName = applyRename(projectName.toLowerCase().replace(/[^a-z0-9._-]/g, '-'));
+          log('', 'log-info');
+          log('[' + (i + 1) + '/' + urls.length + '] ' + projectName + ' -> ' + owner + '/' + repoName, 'log-step');
+
+          if (window.MobileMigrate) {
+            return window.MobileMigrate.uploadSFFilesToGitHub(
+              projectName, token, owner, repoName,
+              privateCheck.checked,
+              function (msg) { log('  ' + msg, 'log-info'); }
+            ).then(function (result) {
+              if (result && result.success) {
+                log('  Uploaded ' + result.filesCount + ' file(s) to ' + result.githubUrl, 'log-success');
+              }
+            }).catch(function (err) {
+              log('  Failed: ' + (err.message || err), 'log-error');
+            });
+          }
+
+          // Fallback: no MobileMigrate available
+          log('  MobileMigrate not loaded — cannot upload.', 'log-error');
+          return Promise.resolve();
+        });
       });
-    });
 
-    chain.finally(function () {
+      return chain;
+    }).catch(function (err) {
+      log('Error: ' + err.message, 'log-error');
+    }).finally(function () {
       log('', 'log-info');
-      log('=== POPULATE COMPLETE ===', 'log-header');
+      log('=== UPLOAD COMPLETE ===', 'log-header');
       btnPopulateCode.classList.remove('loading');
       updateButtons();
     });
@@ -656,7 +641,7 @@
     var urls = getUrls();
     var token = tokenInput.value.trim();
     if (urls.length === 0 || !token) return;
-    if (!confirm('This will:\n1. Populate empty Code tabs from SF Files\n2. Migrate all repos to GitHub\n\nContinue?')) return;
+    if (!confirm('This will:\n1. Upload SF Files to new GitHub repos\n2. Migrate git repos from SF to GitHub\n\nContinue?')) return;
 
     clearLog();
     log('=== AUTOMATED MIGRATION ===', 'log-header');
@@ -666,35 +651,42 @@
     btnMigrate.disabled = true;
     btnPopulateCode.disabled = true;
 
-    // Step 2: Populate first
-    var sfUser = getSfUsername();
-    var populateChain = Promise.resolve();
+    // Step 2: Upload SF Files to GitHub
+    var uploadChain = Promise.resolve();
 
-    if (sfUser && !useClientSide()) {
-      log('--- Step 2: Populating empty Code tabs ---', 'log-step');
-      urls.forEach(function (url, i) {
-        populateChain = populateChain.then(function () {
-          var sfMatch = url.match(/sourceforge\.net\/(?:projects?|p)\/([^/?#]+)/i);
-          var projectName = sfMatch ? sfMatch[1] : url;
-          return apiPost('/api/sf-populate', { projectName: projectName, sfUsername: sfUser })
-            .then(function (result) {
-              if (result.ok && result.data.success) {
-                log('  ' + projectName + ': populated ' + result.data.filesCount + ' file(s)', 'log-success');
-              } else {
-                log('  ' + projectName + ': ' + (result.data.message || 'skipped'), 'log-info');
+    if (window.MobileMigrate) {
+      log('--- Step 2: Uploading SF Files to GitHub ---', 'log-step');
+
+      uploadChain = fetch('https://api.github.com/user', {
+        headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' },
+      }).then(function (r) { return r.json(); }).then(function (user) {
+        var owner = orgInput.value.trim() || user.login;
+        var chain = Promise.resolve();
+        urls.forEach(function (url) {
+          chain = chain.then(function () {
+            var sfMatch = url.match(/sourceforge\.net\/(?:projects?|p)\/([^/?#]+)/i);
+            var projectName = sfMatch ? sfMatch[1] : url;
+            var repoName = applyRename(projectName.toLowerCase().replace(/[^a-z0-9._-]/g, '-'));
+            return window.MobileMigrate.uploadSFFilesToGitHub(
+              projectName, token, owner, repoName, privateCheck.checked,
+              function (msg) { log('  ' + msg, 'log-info'); }
+            ).then(function (result) {
+              if (result && result.success) {
+                log('  ' + projectName + ': ' + result.filesCount + ' file(s) uploaded', 'log-success');
               }
-            })
-            .catch(function () {
-              log('  ' + projectName + ': populate skipped', 'log-info');
+            }).catch(function (err) {
+              log('  ' + projectName + ': ' + (err.message || 'failed'), 'log-warn');
             });
+          });
         });
+        return chain;
       });
     }
 
-    // Then Step 4: Migrate
-    populateChain.then(function () {
+    // Then Step 4: Migrate git repos
+    uploadChain.then(function () {
       log('', 'log-info');
-      log('--- Step 4: Migrating to GitHub ---', 'log-step');
+      log('--- Step 4: Migrating git repos to GitHub ---', 'log-step');
       runMigration();
     }).catch(function (err) {
       log('Automation failed: ' + err.message, 'log-error');

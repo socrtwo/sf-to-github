@@ -171,95 +171,109 @@ window.MobileMigrate = (function () {
     }
   }
 
-  // ─── Populate SF Code Tab (isomorphic-git, works on mobile) ──────────────
-  // Downloads files from SF Files section, creates a git repo in IndexedDB,
-  // commits them, and pushes to the SF Code tab via HTTPS.
+  // ─── Upload SF Files directly to GitHub ──────────────────────────────────
+  // Downloads files from SF Files section and creates them in a new GitHub
+  // repo via the GitHub Contents API. No git push needed — works everywhere.
 
-  async function populateCodeTab(projectName, sfUsername, sfPassword, log) {
-    var { git, LightningFS, http } = getGitLibs();
-
+  async function uploadSFFilesToGitHub(projectName, token, owner, repoName, isPrivate, log) {
     log('Listing files in SF Files section...');
     var sfFiles = await downloadSFFileList(projectName);
 
-    // Create a fresh filesystem for this operation
-    var fsName = 'sf2gh-populate-' + projectName + '-' + Date.now();
-    var pfs = new LightningFS(fsName);
-    var dir = '/populate';
+    if (sfFiles.length === 0) {
+      log('No files found in Files section. Creating README only.');
+      sfFiles = [];
+    }
 
-    // Init a new repo
-    await git.init({ fs: pfs, dir: dir, defaultBranch: 'main' });
+    // Create the GitHub repo
+    log('Creating GitHub repository ' + owner + '/' + repoName + '...');
+    var exists = await repoExists(token, owner, repoName);
+    var repoData;
+    if (exists) {
+      log('Repository already exists on GitHub.');
+      repoData = { html_url: 'https://github.com/' + owner + '/' + repoName };
+    } else {
+      repoData = await createRepo(token, repoName, { isPrivate: isPrivate });
+      log('Repository created: ' + repoData.html_url);
+    }
 
-    if (sfFiles.length > 0) {
-      log('Found ' + sfFiles.length + ' file(s). Downloading...');
-      // Download up to 10 files (skip large binaries)
-      var downloaded = 0;
-      for (var fi = 0; fi < sfFiles.length && downloaded < 10; fi++) {
-        var f = sfFiles[fi];
-        var lower = f.name.toLowerCase();
-        // Skip obvious binaries
-        if (/\.(exe|msi|dmg|rpm|deb|apk|ipa|appimage)$/i.test(lower)) continue;
+    // Always create a README first (initializes the repo so we can add more files)
+    var readmeContent = '# ' + projectName + '\n\nMigrated from SourceForge via SF2GH Migrator.\n\n'
+      + 'Original project: https://sourceforge.net/projects/' + projectName + '/\n';
+    log('Creating README.md...');
+    try {
+      await githubFetch('PUT', '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repoName) + '/contents/README.md', token, {
+        message: 'Add README — migrated from SourceForge',
+        content: btoa(unescape(encodeURIComponent(readmeContent))),
+      });
+    } catch (readmeErr) {
+      if (readmeErr.status !== 422) throw readmeErr; // 422 = file already exists
+    }
 
-        log('  Downloading: ' + f.name);
-        try {
-          var resp = await fetch(f.url, {
-            headers: { 'User-Agent': 'SF2GH-Migrator/1.0' },
-            redirect: 'follow',
+    // Download and upload each file via GitHub Contents API
+    var uploaded = 0;
+    var maxFiles = 15; // GitHub API rate limit friendly
+    for (var fi = 0; fi < sfFiles.length && uploaded < maxFiles; fi++) {
+      var f = sfFiles[fi];
+      var lower = f.name.toLowerCase();
+      // Skip obvious binaries
+      if (/\.(exe|msi|dmg|rpm|deb|apk|ipa|appimage)$/i.test(lower)) continue;
+      // Skip very large files (GitHub Contents API limit is 100MB, but be conservative)
+      if (f.size && f.size > 25 * 1024 * 1024) {
+        log('  Skipping ' + f.name + ' (too large for API upload)');
+        continue;
+      }
+
+      log('  [' + (uploaded + 1) + '/' + Math.min(sfFiles.length, maxFiles) + '] Downloading: ' + f.name);
+      try {
+        var resp = await fetch(f.url, {
+          headers: { 'User-Agent': 'SF2GH-Migrator/1.0' },
+          redirect: 'follow',
+        });
+        if (!resp.ok) {
+          log('    Warning: download failed (HTTP ' + resp.status + ')');
+          continue;
+        }
+        var content = await resp.arrayBuffer();
+        var bytes = new Uint8Array(content);
+
+        // Convert to base64 for GitHub API
+        var binary = '';
+        for (var bi = 0; bi < bytes.length; bi++) {
+          binary += String.fromCharCode(bytes[bi]);
+        }
+        var base64 = btoa(binary);
+
+        // Sanitize filename for GitHub (replace spaces, special chars)
+        var safeName = f.name.replace(/[+]/g, ' ').replace(/\s+/g, '_');
+
+        log('    Uploading to GitHub...');
+        await githubFetch('PUT',
+          '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repoName) + '/contents/' + encodeURIComponent(safeName),
+          token, {
+            message: 'Add ' + safeName + ' from SourceForge Files',
+            content: base64,
           });
-          if (resp.ok) {
-            var content = await resp.arrayBuffer();
-            await pfs.promises.writeFile(dir + '/' + f.name, new Uint8Array(content));
-            downloaded++;
-          }
-        } catch (dlErr) {
-          log('  Warning: could not download ' + f.name);
+        uploaded++;
+
+        // Small delay to avoid GitHub rate limits
+        await sleep(300);
+      } catch (err) {
+        if (err.status === 422) {
+          log('    File already exists, skipping.');
+          uploaded++;
+        } else {
+          log('    Warning: upload failed — ' + (err.message || err));
         }
       }
-      if (downloaded === 0) {
-        // No files downloaded — create a README
-        log('  No files could be downloaded. Creating README...');
-        await pfs.promises.writeFile(dir + '/README.md',
-          '# ' + projectName + '\n\nMigrated from SourceForge via SF2GH Migrator.\n');
-      }
-    } else {
-      log('No files in Files section. Creating README...');
-      await pfs.promises.writeFile(dir + '/README.md',
-        '# ' + projectName + '\n\nMigrated from SourceForge via SF2GH Migrator.\n');
     }
 
-    // Stage all files
-    var files = await pfs.promises.readdir(dir);
-    for (var ai = 0; ai < files.length; ai++) {
-      if (files[ai] === '.git') continue;
-      await git.add({ fs: pfs, dir: dir, filepath: files[ai] });
-    }
-
-    // Commit
-    log('Committing...');
-    await git.commit({
-      fs: pfs,
-      dir: dir,
-      message: 'Import files from SourceForge Files section\n\nPopulated via SF2GH Migrator',
-      author: { name: 'SF2GH Migrator', email: 'sf2gh@localhost' },
-    });
-
-    // Push to SF Code tab via HTTPS
-    var pushUrl = 'https://' + encodeURIComponent(sfUsername) + '@git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
-    log('Pushing to SF Code tab...');
-    await git.push({
-      fs: pfs,
-      http: http,
-      dir: dir,
-      url: pushUrl,
-      ref: 'main',
-      remoteRef: 'main',
-      force: true,
-      onAuth: function () {
-        return { username: sfUsername, password: sfPassword };
-      },
-    });
-
-    log('Code tab populated!');
-    return { success: true, filesCount: files.length - 1 }; // -1 for .git
+    log('Uploaded ' + uploaded + ' file(s) to GitHub.');
+    return {
+      success: true,
+      filesCount: uploaded,
+      githubUrl: repoData.html_url,
+      githubRepo: owner + '/' + repoName,
+    };
   }
 
   // ─── Repo Name Sanitization ───────────────────────────────────────────────
@@ -902,7 +916,7 @@ window.MobileMigrate = (function () {
     planMigration: planMigration,
     migrateBatch: migrateBatch,
     lookupProfile: lookupProfile,
-    populateCodeTab: populateCodeTab,
+    uploadSFFilesToGitHub: uploadSFFilesToGitHub,
   };
 
 })();
