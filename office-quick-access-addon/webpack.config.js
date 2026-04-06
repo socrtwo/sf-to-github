@@ -17,7 +17,7 @@ module.exports = {
       directory: path.join(__dirname, "dist"),
     },
     port: 3000,
-    https: true,
+    server: "https",
     headers: {
       "Access-Control-Allow-Origin": "*",
     },
