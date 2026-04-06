@@ -8,11 +8,14 @@
  *        GITHUB_TOKEN=ghp_YOUR_TOKEN node scripts/transfer-sf-exes.js
  */
 
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const https = require('https');
+
+const { createRunner } = require('./lib/shell');
+const { downloadFromSF } = require('./lib/sf-downloader');
+const { createGitHubApi, sleep } = require('./lib/github-api');
+const { configureGit, cloneUrl } = require('./lib/git-helpers');
 
 const TOKEN = process.env.GITHUB_TOKEN;
 const OWNER = process.env.GITHUB_OWNER || 'socrtwo';
@@ -21,6 +24,9 @@ if (!TOKEN) {
   console.error('Set GITHUB_TOKEN environment variable.');
   process.exit(1);
 }
+
+const { run } = createRunner(TOKEN);
+const { githubApi } = createGitHubApi(TOKEN);
 
 const PROJECTS = [
   {
@@ -61,78 +67,6 @@ const PROJECTS = [
   },
 ];
 
-// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
-const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
-fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
-const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
-
-function run(cmd, opts = {}) {
-  console.log('  $ ' + cmd.substring(0, 100) + (cmd.length > 100 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 300000, env: GIT_ENV, ...opts }).toString().trim();
-}
-
-function downloadFromSF(sfProject, fileName) {
-  const pageUrl = `https://sourceforge.net/projects/${sfProject}/files/${encodeURIComponent(fileName)}/download`;
-  const tmpPage = path.join(os.tmpdir(), 'sf-page-' + Date.now() + '.html');
-  const tmpFile = path.join(os.tmpdir(), 'sf-dl-' + Date.now() + '.bin');
-
-  try {
-    run(`curl -s -o "${tmpPage}" -A "Mozilla/5.0" "${pageUrl}"`, { timeout: 30000 });
-    const html = fs.readFileSync(tmpPage, 'utf8');
-    const match = html.match(/https:\/\/downloads\.sourceforge\.net\/[^"&]+/);
-    if (!match) throw new Error('No mirror URL found');
-    const directUrl = match[0].replace(/&amp;/g, '&');
-    console.log('  Downloading ' + fileName + '...');
-    run(`curl -L -o "${tmpFile}" -A "Mozilla/5.0" --max-redirs 10 --max-time 300 "${directUrl}"`, { timeout: 360000 });
-    if (!fs.existsSync(tmpFile)) throw new Error('No file produced');
-    return tmpFile;
-  } catch (err) {
-    try { fs.unlinkSync(tmpPage); } catch (_) {}
-    try { fs.unlinkSync(tmpFile); } catch (_) {}
-    throw err;
-  } finally {
-    try { fs.unlinkSync(tmpPage); } catch (_) {}
-  }
-}
-
-function githubApi(method, apiPath, body, binary) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: apiPath,
-      method: method,
-      headers: {
-        'User-Agent': 'SF2GH-Migrator/1.0',
-        'Authorization': 'Bearer ' + TOKEN,
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    };
-    if (binary) {
-      options.hostname = 'uploads.github.com';
-      options.headers['Content-Type'] = 'application/octet-stream';
-      options.headers['Content-Length'] = binary.length;
-    } else {
-      options.headers['Accept'] = 'application/vnd.github+json';
-      if (body) options.headers['Content-Type'] = 'application/json';
-    }
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (d) => { data += d; });
-      res.on('end', () => {
-        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
-        catch (_) { resolve({ status: res.statusCode, data: {} }); }
-      });
-    });
-    req.on('error', reject);
-    if (binary) req.write(binary);
-    else if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
-}
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
 async function processProject(project) {
   console.log(`\n=== ${project.repo} (${project.name}) ===`);
 
@@ -144,9 +78,8 @@ async function processProject(project) {
     // Step 1: If there's source code, clone repo, extract, commit, push
     if (project.source) {
       console.log('  Step 1: Extracting source code...');
-      const cloneUrl = `https://github.com/${OWNER}/${project.repo}.git`;
       const repoDir = path.join(tmpDir, 'repo');
-      run(`git clone "${cloneUrl}" "${repoDir}"`);
+      run(`git clone "${cloneUrl(project.repo, OWNER)}" "${repoDir}"`);
 
       // Check if already has content beyond README
       const files = fs.readdirSync(repoDir).filter(f => f !== '.git');
@@ -154,7 +87,7 @@ async function processProject(project) {
 
       if (!hasContent) {
         // Download source from SF
-        const srcFile = downloadFromSF(project.sfProject, project.source);
+        const srcFile = downloadFromSF(run, project.sfProject, project.source);
         const ext = project.source.toLowerCase();
 
         if (ext.endsWith('.zip')) {
@@ -201,8 +134,7 @@ async function processProject(project) {
         const readme = `# ${project.name}\n\n${project.desc}\n\n**Language:** See source files\n\n## Origin\n\nMigrated from [SourceForge](https://sourceforge.net/projects/${project.sfProject}/) via [SF2GH Migrator](https://github.com/socrtwo/sf-to-github).\n\n## Downloads\n\nSee the [Releases](https://github.com/${OWNER}/${project.repo}/releases) page for the installer (.exe).\n\n## License\n\nMIT License\n`;
         fs.writeFileSync(path.join(repoDir, 'README.md'), readme);
 
-        run('git config user.name "SF2GH Migrator"', { cwd: repoDir });
-        run('git config user.email "sf2gh@localhost"', { cwd: repoDir });
+        configureGit(run, repoDir);
         run('git add -A', { cwd: repoDir });
         const status = run('git status --porcelain', { cwd: repoDir });
         if (status) {
@@ -235,7 +167,7 @@ async function processProject(project) {
     console.log('  Step 2: Downloading exe from SourceForge...');
     let exePath;
     try {
-      exePath = downloadFromSF(project.sfProject, project.exe);
+      exePath = downloadFromSF(run, project.sfProject, project.exe);
     } catch (dlErr) {
       console.log('  Download failed: ' + dlErr.message);
       return;

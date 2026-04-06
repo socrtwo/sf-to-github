@@ -9,11 +9,14 @@
  *        GITHUB_TOKEN=ghp_YOUR_TOKEN node scripts/fill-remaining-sf-repos.js
  */
 
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const https = require('https');
+
+const { createRunner } = require('./lib/shell');
+const { downloadFromSF } = require('./lib/sf-downloader');
+const { createGitHubApi, sleep } = require('./lib/github-api');
+const { configureGit, cloneUrl } = require('./lib/git-helpers');
 
 const TOKEN = process.env.GITHUB_TOKEN;
 const OWNER = process.env.GITHUB_OWNER || 'socrtwo';
@@ -22,6 +25,9 @@ if (!TOKEN) {
   console.error('Set GITHUB_TOKEN environment variable.');
   process.exit(1);
 }
+
+const { run } = createRunner(TOKEN);
+const { githubApi } = createGitHubApi(TOKEN);
 
 const PROJECTS = [
   {
@@ -90,72 +96,6 @@ const PROJECTS = [
   },
 ];
 
-// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
-const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
-fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
-const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
-
-function run(cmd, opts = {}) {
-  console.log('  $ ' + cmd.substring(0, 100) + (cmd.length > 100 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 300000, env: GIT_ENV, ...opts }).toString().trim();
-}
-
-function downloadFromSF(sfProject, fileName) {
-  const pageUrl = `https://sourceforge.net/projects/${sfProject}/files/${encodeURIComponent(fileName)}/download`;
-  const tmpPage = path.join(os.tmpdir(), 'sf-page-' + Date.now() + '.html');
-  const tmpFile = path.join(os.tmpdir(), 'sf-dl-' + Date.now() + '.bin');
-
-  try {
-    run(`curl -s -o "${tmpPage}" -A "Mozilla/5.0" "${pageUrl}"`, { timeout: 30000 });
-    const html = fs.readFileSync(tmpPage, 'utf8');
-    const match = html.match(/https:\/\/downloads\.sourceforge\.net\/[^"&]+/);
-    if (!match) throw new Error('No mirror URL found');
-    const directUrl = match[0].replace(/&amp;/g, '&');
-    console.log('  Downloading ' + fileName + '...');
-    run(`curl -L -o "${tmpFile}" -A "Mozilla/5.0" --max-redirs 10 --max-time 300 "${directUrl}"`, { timeout: 360000 });
-    if (!fs.existsSync(tmpFile)) throw new Error('No file produced');
-    return tmpFile;
-  } finally {
-    try { fs.unlinkSync(tmpPage); } catch (_) {}
-  }
-}
-
-function githubApi(method, apiPath, body, binary) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: binary ? 'uploads.github.com' : 'api.github.com',
-      path: apiPath,
-      method: method,
-      headers: {
-        'User-Agent': 'SF2GH-Migrator/1.0',
-        'Authorization': 'Bearer ' + TOKEN,
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    };
-    if (binary) {
-      options.headers['Content-Type'] = 'application/octet-stream';
-      options.headers['Content-Length'] = binary.length;
-    } else {
-      options.headers['Accept'] = 'application/vnd.github+json';
-      if (body) options.headers['Content-Type'] = 'application/json';
-    }
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (d) => { data += d; });
-      res.on('end', () => {
-        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
-        catch (_) { resolve({ status: res.statusCode, data: {} }); }
-      });
-    });
-    req.on('error', reject);
-    if (binary) req.write(binary);
-    else if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
-}
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
 async function processProject(project) {
   console.log(`\n=== ${project.repo} (${project.name}) ===`);
 
@@ -166,9 +106,8 @@ async function processProject(project) {
   try {
     // Clone the repo
     const repoDir = path.join(tmpDir, 'repo');
-    const cloneUrl = `https://github.com/${OWNER}/${project.repo}.git`;
     console.log('  Cloning...');
-    run(`git clone "${cloneUrl}" "${repoDir}"`);
+    run(`git clone "${cloneUrl(project.repo, OWNER)}" "${repoDir}"`);
 
     // Check if already has content
     const existing = fs.readdirSync(repoDir).filter(f => f !== '.git');
@@ -184,7 +123,7 @@ async function processProject(project) {
       for (const file of project.files.filter(f => f.type === 'source')) {
         let dlPath;
         try {
-          dlPath = downloadFromSF(project.sfProject, file.sf);
+          dlPath = downloadFromSF(run, project.sfProject, file.sf);
         } catch (err) {
           console.log('  Download failed: ' + err.message.split('\n')[0]);
           continue;
@@ -251,8 +190,7 @@ async function processProject(project) {
     fs.writeFileSync(path.join(repoDir, 'README.md'), readme);
 
     // Commit and push
-    run('git config user.name "SF2GH Migrator"', { cwd: repoDir });
-    run('git config user.email "sf2gh@localhost"', { cwd: repoDir });
+    configureGit(run, repoDir);
     run('git add -A', { cwd: repoDir });
     const status = run('git status --porcelain', { cwd: repoDir });
     if (status) {
@@ -269,7 +207,7 @@ async function processProject(project) {
       console.log('  Downloading exe for release...');
       let exePath;
       try {
-        exePath = downloadFromSF(project.sfProject, file.sf);
+        exePath = downloadFromSF(run, project.sfProject, file.sf);
       } catch (err) {
         console.log('  Exe download failed: ' + err.message.split('\n')[0]);
         continue;

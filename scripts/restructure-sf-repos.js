@@ -15,11 +15,13 @@
  * Usage: GITHUB_TOKEN=ghp_xxx node scripts/restructure-sf-repos.js
  */
 
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-// Uses curl for downloads (handles SourceForge's complex redirects)
+
+const { createRunner } = require('./lib/shell');
+const { downloadFromSF } = require('./lib/sf-downloader');
+const { configureGit, cloneUrl } = require('./lib/git-helpers');
 
 const TOKEN = process.env.GITHUB_TOKEN;
 const OWNER = process.env.GITHUB_OWNER || 'socrtwo';
@@ -28,6 +30,8 @@ if (!TOKEN) {
   console.error('Set GITHUB_TOKEN environment variable');
   process.exit(1);
 }
+
+const { run } = createRunner(TOKEN);
 
 // Each repo with its SF project name and the best file to download from SF
 const SF_REPOS = [
@@ -47,59 +51,6 @@ const SF_REPOS = [
   { repo: 'wordrecovery-SF', sfProject: 'wordrecovery', sfFile: 'Version 3.0.5-alpha-source.zip' },
   { repo: 'xmltrncatorfixr-SF', sfProject: 'xmltrncatorfixr', sfFile: 'xml_truncator_fixer_source.zip' },
 ];
-
-// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
-const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
-fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
-const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
-
-function run(cmd, opts = {}) {
-  console.log('  $ ' + cmd.substring(0, 120) + (cmd.length > 120 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 300000, env: GIT_ENV, ...opts }).toString().trim();
-}
-
-/**
- * Download a file from SourceForge using a two-step approach:
- * 1. Fetch the download page HTML to extract the direct mirror URL
- * 2. Download the actual file from the mirror
- * Returns a Buffer of the file content.
- */
-function downloadFromSF(sfProject, sfFile) {
-  const pageUrl = `https://sourceforge.net/projects/${sfProject}/files/${encodeURIComponent(sfFile)}/download`;
-  console.log('  Downloading from SF: ' + sfFile);
-
-  const tmpPage = path.join(os.tmpdir(), 'sf-page-' + Date.now() + '.html');
-  const tmpFile = path.join(os.tmpdir(), 'sf-dl-' + Date.now() + '.bin');
-
-  try {
-    // Step 1: Get the download page HTML
-    run(`curl -s -o "${tmpPage}" -A "Mozilla/5.0" "${pageUrl}"`, { timeout: 30000 });
-    const html = fs.readFileSync(tmpPage, 'utf8');
-
-    // Step 2: Extract the direct downloads.sourceforge.net URL
-    const match = html.match(/https:\/\/downloads\.sourceforge\.net\/[^"&]+/);
-    if (!match) {
-      throw new Error('Could not find direct download URL in SF page');
-    }
-    const directUrl = match[0].replace(/&amp;/g, '&');
-    console.log('  Found mirror URL, downloading...');
-
-    // Step 3: Download the actual file from the mirror
-    run(`curl -L -o "${tmpFile}" -A "Mozilla/5.0" --max-redirs 10 --connect-timeout 30 --max-time 300 "${directUrl}"`,
-        { timeout: 360000 });
-
-    if (!fs.existsSync(tmpFile)) {
-      throw new Error('Download produced no file');
-    }
-    const buf = fs.readFileSync(tmpFile);
-    return Promise.resolve(buf);
-  } catch (err) {
-    return Promise.reject(new Error('SF download failed: ' + err.message.split('\n')[0]));
-  } finally {
-    try { fs.unlinkSync(tmpPage); } catch (_) {}
-    try { fs.unlinkSync(tmpFile); } catch (_) {}
-  }
-}
 
 function flattenSingleSubdir(dir) {
   const entries = fs.readdirSync(dir).filter(e => e !== '.git');
@@ -167,9 +118,8 @@ async function processRepo(entry) {
 
   try {
     // Clone the GitHub repo
-    const cloneUrl = `https://github.com/${OWNER}/${repo}.git`;
     console.log('  Cloning...');
-    run(`git clone "${cloneUrl}" "${tmpDir}"`);
+    run(`git clone "${cloneUrl(repo, OWNER)}" "${tmpDir}"`);
 
     const allFiles = fs.readdirSync(tmpDir).filter(f => f !== '.git');
     console.log('  Current files: ' + (allFiles.join(', ') || '(empty)'));
@@ -181,25 +131,23 @@ async function processRepo(entry) {
     }
 
     // Download the REAL zip from SourceForge
-    let zipBuffer;
+    let zipPath;
     try {
-      zipBuffer = await downloadFromSF(sfProject, sfFile);
+      zipPath = downloadFromSF(run, sfProject, sfFile);
     } catch (dlErr) {
       console.log('  Download failed: ' + dlErr.message);
       return;
     }
 
     // Verify it's actually a zip (first 2 bytes = PK = 0x50 0x4B)
+    const zipBuffer = fs.readFileSync(zipPath);
     if (zipBuffer.length < 4 || zipBuffer[0] !== 0x50 || zipBuffer[1] !== 0x4B) {
       console.log('  Downloaded file is not a valid zip (got ' + zipBuffer.length + ' bytes, starts with: ' +
         zipBuffer.slice(0, 4).toString('hex') + '). Skipping.');
+      fs.unlinkSync(zipPath);
       return;
     }
     console.log('  Downloaded ' + (zipBuffer.length / 1024).toFixed(0) + ' KB — valid zip.');
-
-    // Save the real zip
-    const zipPath = path.join(os.tmpdir(), 'sf-download-' + sfFile.replace(/[^a-zA-Z0-9._-]/g, '_'));
-    fs.writeFileSync(zipPath, zipBuffer);
 
     // Extract
     fs.mkdirSync(extractDir, { recursive: true });
@@ -264,8 +212,7 @@ async function processRepo(entry) {
     }
 
     // Commit and push
-    run('git config user.name "SF2GH Migrator"', { cwd: tmpDir });
-    run('git config user.email "sf2gh@localhost"', { cwd: tmpDir });
+    configureGit(run, tmpDir);
     run('git add -A', { cwd: tmpDir });
 
     const status = run('git status --porcelain', { cwd: tmpDir });

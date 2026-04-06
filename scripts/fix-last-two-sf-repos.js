@@ -10,11 +10,14 @@
  *        GITHUB_TOKEN=ghp_YOUR_TOKEN node scripts/fix-last-two-sf-repos.js
  */
 
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const https = require('https');
+
+const { createRunner } = require('./lib/shell');
+const { downloadFromSF } = require('./lib/sf-downloader');
+const { createGitHubApi, sleep } = require('./lib/github-api');
+const { configureGit, cloneUrl } = require('./lib/git-helpers');
 
 const TOKEN = process.env.GITHUB_TOKEN;
 const OWNER = process.env.GITHUB_OWNER || 'socrtwo';
@@ -24,71 +27,8 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
-const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
-fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
-const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
-
-function run(cmd, opts = {}) {
-  console.log('  $ ' + cmd.substring(0, 120) + (cmd.length > 120 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 600000, env: GIT_ENV, ...opts }).toString().trim();
-}
-
-function downloadFromSF(sfProject, fileName) {
-  const pageUrl = `https://sourceforge.net/projects/${sfProject}/files/${encodeURIComponent(fileName)}/download`;
-  const tmpPage = path.join(os.tmpdir(), 'sf-page-' + Date.now() + '.html');
-  const tmpFile = path.join(os.tmpdir(), 'sf-dl-' + Date.now() + '.bin');
-  try {
-    run(`curl -s -o "${tmpPage}" -A "Mozilla/5.0" "${pageUrl}"`, { timeout: 30000 });
-    const html = fs.readFileSync(tmpPage, 'utf8');
-    const match = html.match(/https:\/\/downloads\.sourceforge\.net\/[^"&]+/);
-    if (!match) throw new Error('No mirror URL found');
-    const directUrl = match[0].replace(/&amp;/g, '&');
-    console.log('  Downloading ' + fileName + '...');
-    run(`curl -L -o "${tmpFile}" -A "Mozilla/5.0" --max-redirs 10 --max-time 600 "${directUrl}"`, { timeout: 660000 });
-    if (!fs.existsSync(tmpFile)) throw new Error('No file');
-    return tmpFile;
-  } finally {
-    try { fs.unlinkSync(tmpPage); } catch (_) {}
-  }
-}
-
-function githubApi(method, apiPath, body, binary) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: binary ? 'uploads.github.com' : 'api.github.com',
-      path: apiPath,
-      method: method,
-      headers: {
-        'User-Agent': 'SF2GH-Migrator/1.0',
-        'Authorization': 'Bearer ' + TOKEN,
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    };
-    if (binary) {
-      options.headers['Content-Type'] = 'application/octet-stream';
-      options.headers['Content-Length'] = binary.length;
-    } else {
-      options.headers['Accept'] = 'application/vnd.github+json';
-      if (body) options.headers['Content-Type'] = 'application/json';
-    }
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (d) => { data += d; });
-      res.on('end', () => {
-        try { resolve({ status: res.statusCode, data: JSON.parse(data) }); }
-        catch (_) { resolve({ status: res.statusCode, data: {} }); }
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(300000);
-    if (binary) req.write(binary);
-    else if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
-}
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+const { run } = createRunner(TOKEN, 600000);
+const { githubApi } = createGitHubApi(TOKEN);
 
 async function fixGenealogyoflife() {
   console.log('\n=== genealogyoflife-SF ===');
@@ -101,7 +41,7 @@ async function fixGenealogyoflife() {
   if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
 
   console.log('  Cloning repo...');
-  run(`git clone "https://github.com/${OWNER}/${repo}.git" "${tmpDir}"`);
+  run(`git clone "${cloneUrl(repo, OWNER)}" "${tmpDir}"`);
 
   // Remove any large files from the repo
   const files = fs.readdirSync(tmpDir).filter(f => f !== '.git');
@@ -147,21 +87,20 @@ MIT License
 
   // Also grab the smaller text/image files from SF
   try {
-    const instrFile = downloadFromSF('genealogyoflife', 'Life2008-Conversion Instruction-May Work With Future Years.txt');
+    const instrFile = downloadFromSF(run, 'genealogyoflife', 'Life2008-Conversion Instruction-May Work With Future Years.txt');
     fs.copyFileSync(instrFile, path.join(tmpDir, 'Conversion-Instructions.txt'));
     fs.unlinkSync(instrFile);
     console.log('  Added conversion instructions.');
   } catch (_) { console.log('  Could not download instructions file.'); }
 
   try {
-    const imgFile = downloadFromSF('genealogyoflife', 'Life2008-Connection.PNG');
+    const imgFile = downloadFromSF(run, 'genealogyoflife', 'Life2008-Connection.PNG');
     fs.copyFileSync(imgFile, path.join(tmpDir, 'Life2008-Connection.PNG'));
     fs.unlinkSync(imgFile);
     console.log('  Added connection diagram.');
   } catch (_) { console.log('  Could not download connection image.'); }
 
-  run('git config user.name "SF2GH Migrator"', { cwd: tmpDir });
-  run('git config user.email "sf2gh@localhost"', { cwd: tmpDir });
+  configureGit(run, tmpDir);
   run('git add -A', { cwd: tmpDir });
   const status = run('git status --porcelain', { cwd: tmpDir });
   if (status) {
@@ -175,7 +114,7 @@ MIT License
   console.log('  Downloading 108MB database from SF...');
   let dbPath;
   try {
-    dbPath = downloadFromSF('genealogyoflife', 'Database-With-2008-Data.zip');
+    dbPath = downloadFromSF(run, 'genealogyoflife', 'Database-With-2008-Data.zip');
   } catch (err) {
     console.log('  Download failed: ' + err.message);
     fs.rmSync(tmpDir, { recursive: true });
@@ -235,7 +174,7 @@ async function fixSaveofficedata() {
   if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
 
   console.log('  Cloning repo...');
-  run(`git clone "https://github.com/${OWNER}/${repo}.git" "${tmpDir}"`);
+  run(`git clone "${cloneUrl(repo, OWNER)}" "${tmpDir}"`);
 
   // Check if already has source (beyond README)
   const existing = fs.readdirSync(tmpDir).filter(f => f !== '.git');
@@ -254,7 +193,7 @@ async function fixSaveofficedata() {
     console.log('  Trying: ' + altFile);
     let dlPath;
     try {
-      dlPath = downloadFromSF(sfProject, altFile);
+      dlPath = downloadFromSF(run, sfProject, altFile);
     } catch (err) {
       console.log('  Download failed: ' + err.message.split('\n')[0]);
       continue;
@@ -332,8 +271,7 @@ MIT License
   const extractDir = path.join(tmpDir, 'extract');
   if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true });
 
-  run('git config user.name "SF2GH Migrator"', { cwd: tmpDir });
-  run('git config user.email "sf2gh@localhost"', { cwd: tmpDir });
+  configureGit(run, tmpDir);
   run('git add -A', { cwd: tmpDir });
   const status = run('git status --porcelain', { cwd: tmpDir });
   if (status) {

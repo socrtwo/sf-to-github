@@ -22,40 +22,20 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const { createRunner } = require('./lib/shell');
+const { downloadFromSF } = require('./lib/sf-downloader');
+const { configureGit, cloneUrl } = require('./lib/git-helpers');
+const repoConfig = require('./config/repositories.json');
+
 const TOKEN = process.env.GITHUB_TOKEN;
-const OWNER = process.env.GITHUB_OWNER || 'socrtwo';
+const OWNER = process.env.GITHUB_OWNER || repoConfig.owner;
 
 if (!TOKEN) {
   console.error('Set GITHUB_TOKEN environment variable.');
   process.exit(1);
 }
 
-// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
-const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
-fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
-const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
-
-function run(cmd, opts = {}) {
-  console.log('    $ ' + cmd.substring(0, 110) + (cmd.length > 110 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 300000, env: GIT_ENV, ...opts }).toString().trim();
-}
-
-function downloadFromSF(sfProject, fileName) {
-  const pageUrl = `https://sourceforge.net/projects/${sfProject}/files/${encodeURIComponent(fileName)}/download`;
-  const tmpPage = path.join(os.tmpdir(), 'sf-page-' + Date.now() + '.html');
-  const tmpFile = path.join(os.tmpdir(), 'sf-dl-' + Date.now() + '.bin');
-  try {
-    run(`curl -s -o "${tmpPage}" -A "Mozilla/5.0" "${pageUrl}"`, { timeout: 30000 });
-    const html = fs.readFileSync(tmpPage, 'utf8');
-    const match = html.match(/https:\/\/downloads\.sourceforge\.net\/[^"&]+/);
-    if (!match) throw new Error('No mirror URL found');
-    const directUrl = match[0].replace(/&amp;/g, '&');
-    run(`curl -L -o "${tmpFile}" -A "Mozilla/5.0" --max-redirs 10 --max-time 600 "${directUrl}"`, { timeout: 660000 });
-    return tmpFile;
-  } finally {
-    try { fs.unlinkSync(tmpPage); } catch (_) {}
-  }
-}
+const { run } = createRunner(TOKEN);
 
 // Files to delete from all repos
 const JUNK_FILES = [
@@ -100,33 +80,8 @@ config.php
 cookiefile
 `;
 
-// All repos to clean
-const REPOS = [
-  'autoscrshotanno-SF',
-  'catalog-of-life-SF',
-  'coffice2txt-SF',
-  'corruptexcelrec-SF',
-  'crrptoffcxtrctr-SF',
-  'damageddocx2txt-SF',
-  'datarecoverfree-SF',
-  'excel2ged-SF',
-  'excelrcvryaddin-SF',
-  'fasterposter-SF',
-  'ged2wiki-SF',
-  'genealogyoflife-SF',
-  'godskingsheroes-SF',
-  'oorecovery-SF',
-  'pptxrecovery-SF',
-  'qatindex-SF',
-  'quickwordrecovr-SF',
-  'saveofficedata-SF',
-  'savvyoffice-SF',
-  'shiftf3-SF',
-  'vistaprevrsrcvr-SF',
-  'whereyoubin-SF',
-  'wordrecovery-SF',
-  'xmltrncatorfixr-SF',
-];
+// All repos to clean (from shared config)
+const REPOS = repoConfig.repos.map(r => r.repo);
 
 function deleteRecursive(dir) {
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
@@ -162,9 +117,8 @@ async function cleanRepo(repoName) {
   if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
 
   try {
-    const cloneUrl = `https://github.com/${OWNER}/${repoName}.git`;
     console.log('  Cloning...');
-    run(`git clone "${cloneUrl}" "${tmpDir}"`);
+    run(`git clone "${cloneUrl(repoName, OWNER)}" "${tmpDir}"`);
 
     const allFiles = fs.readdirSync(tmpDir).filter(f => f !== '.git');
     if (allFiles.length === 0) {
@@ -290,7 +244,7 @@ async function cleanRepo(repoName) {
       if (!hasSource && hasZips) {
         console.log('  Source not extracted yet. Downloading from SF...');
         try {
-          const dlPath = downloadFromSF('wordrecovery', 'Version 3.0.5-alpha-source.zip');
+          const dlPath = downloadFromSF(run, 'wordrecovery', 'Version 3.0.5-alpha-source.zip');
           const buf = fs.readFileSync(dlPath);
           if (buf[0] === 0x50 && buf[1] === 0x4B) {
             const extractDir = path.join(os.tmpdir(), 'sf-extract-wordrecovery');
@@ -353,8 +307,7 @@ async function cleanRepo(repoName) {
       return;
     }
 
-    run('git config user.name "SF2GH Migrator"', { cwd: tmpDir });
-    run('git config user.email "sf2gh@localhost"', { cwd: tmpDir });
+    configureGit(run, tmpDir);
     run('git add -A', { cwd: tmpDir });
 
     const status = run('git status --porcelain', { cwd: tmpDir });

@@ -12,18 +12,23 @@
  * Your token needs the "workflow" scope to push .github/workflows/ files.
  */
 
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const { createRunner } = require('./lib/shell');
+const { configureGit, cloneUrl } = require('./lib/git-helpers');
+const repoConfig = require('./config/repositories.json');
+
 const TOKEN = process.env.GITHUB_TOKEN;
-const OWNER = process.env.GITHUB_OWNER || 'socrtwo';
+const OWNER = process.env.GITHUB_OWNER || repoConfig.owner;
 
 if (!TOKEN) {
   console.error('Set GITHUB_TOKEN environment variable.');
   process.exit(1);
 }
+
+const { run } = createRunner(TOKEN, 120000);
 
 // ─── Workflow templates ──────────────────────────────────────────────────
 
@@ -323,35 +328,11 @@ jobs:
 `;
 }
 
-// ─── Repo list ───────────────────────────────────────────────────────────
+// ─── Repo list (from shared config, filtered to repos with workflow types) ──
 
-const REPOS = [
-  // VB.NET
-  { repo: 'corruptexcelrec-SF', type: 'vbnet', sln: 'Excel Recovery.sln', name: 'S2 Recovery Tools for Microsoft Excel' },
-  { repo: 'vistaprevrsrcvr-SF', type: 'vbnet', sln: 'Previous Version Explorer.sln', name: 'Previous Version File Recoverer' },
-  { repo: 'excelrcvryaddin-SF', type: 'vbnet', sln: 'ExcelRecoveryAddin.sln', name: 'Excel Recovery Add-In' },
-  { repo: 'quickwordrecovr-SF', type: 'vbnet', sln: 'Unspecified Error DOCX Recovery.sln', name: 'Savvy DOCX Recovery' },
-  { repo: 'savvyoffice-SF', type: 'vbnet', sln: 'Savvy Repair for Microsoft Office.sln', name: 'Savvy Repair for Microsoft Office' },
-  // Perl
-  { repo: 'coffice2txt-SF', type: 'perl', name: 'Corrupt Office File Salvager' },
-  { repo: 'damageddocx2txt-SF', type: 'perl', name: 'Corrupt DOCX Salvager' },
-  { repo: 'ged2wiki-SF', type: 'perl', name: 'gedcom2wiki' },
-  { repo: 'xmltrncatorfixr-SF', type: 'perl', name: 'XML Truncator-Fixer' },
-  // PHP
-  { repo: 'whereyoubin-SF', type: 'php', name: 'Where In the World Have You Been?' },
-  { repo: 'datarecoverfree-SF', type: 'php', name: 'Freeware Directory Script' },
-  { repo: 'saveofficedata-SF', type: 'php', name: 'Corrupt Office Data/Text Extract Service' },
-  // Delphi
-  { repo: 'crrptoffcxtrctr-SF', type: 'delphi', dpr: 'crworde.dpr', name: 'Corrupt Extractor for Microsoft Office' },
-  // AutoHotkey
-  { repo: 'shiftf3-SF', type: 'ahk', name: 'Shift F3 Case Changer' },
-  // AutoIt
-  { repo: 'autoscrshotanno-SF', type: 'autoit', name: 'Automatic Screenshot Annotator' },
-  // HTML/Web
-  { repo: 'fasterposter-SF', type: 'html', name: 'Faster Poster' },
-  // GEDCOM data
-  { repo: 'godskingsheroes-SF', type: 'gedcom', name: 'Famous Family Trees' },
-];
+const REPOS = repoConfig.repos.filter(r =>
+  ['vbnet', 'perl', 'php', 'delphi', 'ahk', 'autoit', 'html', 'gedcom'].includes(r.type)
+);
 
 function getWorkflow(entry) {
   switch (entry.type) {
@@ -367,16 +348,6 @@ function getWorkflow(entry) {
   }
 }
 
-// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
-const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
-fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
-const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
-
-function run(cmd, opts = {}) {
-  console.log('  $ ' + cmd.substring(0, 100) + (cmd.length > 100 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 120000, env: GIT_ENV, ...opts }).toString().trim();
-}
-
 async function processRepo(entry) {
   console.log(`\n=== ${entry.repo} (${entry.type}) ===`);
 
@@ -390,9 +361,8 @@ async function processRepo(entry) {
   if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
 
   try {
-    const cloneUrl = `https://github.com/${OWNER}/${entry.repo}.git`;
     console.log('  Cloning...');
-    run(`git clone "${cloneUrl}" "${tmpDir}"`);
+    run(`git clone "${cloneUrl(entry.repo, OWNER)}" "${tmpDir}"`);
 
     const workflowDir = path.join(tmpDir, '.github', 'workflows');
     if (fs.existsSync(path.join(workflowDir, 'build.yml'))) {
@@ -404,8 +374,7 @@ async function processRepo(entry) {
     fs.writeFileSync(path.join(workflowDir, 'build.yml'), workflow);
     console.log('  Created workflow (' + entry.type + ')');
 
-    run('git config user.name "SF2GH Migrator"', { cwd: tmpDir });
-    run('git config user.email "sf2gh@localhost"', { cwd: tmpDir });
+    configureGit(run, tmpDir);
     run('git add -A', { cwd: tmpDir });
     run(`git commit -m "Add GitHub Actions workflow (${entry.type})"`, { cwd: tmpDir });
     console.log('  Pushing...');
