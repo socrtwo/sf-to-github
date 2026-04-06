@@ -30,9 +30,14 @@ if (!TOKEN) {
   process.exit(1);
 }
 
+// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
+const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
+fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
+const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
+
 function run(cmd, opts = {}) {
   console.log('    $ ' + cmd.substring(0, 110) + (cmd.length > 110 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 300000, ...opts }).toString().trim();
+  return execSync(cmd, { stdio: 'pipe', timeout: 300000, env: GIT_ENV, ...opts }).toString().trim();
 }
 
 function downloadFromSF(sfProject, fileName) {
@@ -157,7 +162,7 @@ async function cleanRepo(repoName) {
   if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
 
   try {
-    const cloneUrl = `https://${TOKEN}@github.com/${OWNER}/${repoName}.git`;
+    const cloneUrl = `https://github.com/${OWNER}/${repoName}.git`;
     console.log('  Cloning...');
     run(`git clone "${cloneUrl}" "${tmpDir}"`);
 
@@ -186,7 +191,7 @@ async function cleanRepo(repoName) {
       let files;
       if (pattern.startsWith('*')) {
         const ext = pattern.substring(1);
-        files = findFiles(tmpDir, new RegExp(ext.replace('.', '\\.') + '$', 'i'));
+        files = findFiles(tmpDir, new RegExp(ext.replace(/\./g, '\\.') + '$', 'i'));
       } else {
         files = findFiles(tmpDir, pattern);
       }

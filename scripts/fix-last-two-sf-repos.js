@@ -24,9 +24,14 @@ if (!TOKEN) {
   process.exit(1);
 }
 
+// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
+const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
+fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
+const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
+
 function run(cmd, opts = {}) {
   console.log('  $ ' + cmd.substring(0, 120) + (cmd.length > 120 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 600000, ...opts }).toString().trim();
+  return execSync(cmd, { stdio: 'pipe', timeout: 600000, env: GIT_ENV, ...opts }).toString().trim();
 }
 
 function downloadFromSF(sfProject, fileName) {
@@ -96,7 +101,7 @@ async function fixGenealogyoflife() {
   if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
 
   console.log('  Cloning repo...');
-  run(`git clone "https://${TOKEN}@github.com/${OWNER}/${repo}.git" "${tmpDir}"`);
+  run(`git clone "https://github.com/${OWNER}/${repo}.git" "${tmpDir}"`);
 
   // Remove any large files from the repo
   const files = fs.readdirSync(tmpDir).filter(f => f !== '.git');
@@ -230,7 +235,7 @@ async function fixSaveofficedata() {
   if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true });
 
   console.log('  Cloning repo...');
-  run(`git clone "https://${TOKEN}@github.com/${OWNER}/${repo}.git" "${tmpDir}"`);
+  run(`git clone "https://github.com/${OWNER}/${repo}.git" "${tmpDir}"`);
 
   // Check if already has source (beyond README)
   const existing = fs.readdirSync(tmpDir).filter(f => f !== '.git');

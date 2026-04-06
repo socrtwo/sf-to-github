@@ -61,9 +61,14 @@ const PROJECTS = [
   },
 ];
 
+// Git auth via GIT_ASKPASS so the token never appears in URLs or logs
+const askpassScript = path.join(os.tmpdir(), 'sf2gh-askpass.sh');
+fs.writeFileSync(askpassScript, `#!/bin/sh\necho "${TOKEN}"\n`, { mode: 0o700 });
+const GIT_ENV = { ...process.env, GIT_ASKPASS: askpassScript, GIT_TERMINAL_PROMPT: '0' };
+
 function run(cmd, opts = {}) {
   console.log('  $ ' + cmd.substring(0, 100) + (cmd.length > 100 ? '...' : ''));
-  return execSync(cmd, { stdio: 'pipe', timeout: 300000, ...opts }).toString().trim();
+  return execSync(cmd, { stdio: 'pipe', timeout: 300000, env: GIT_ENV, ...opts }).toString().trim();
 }
 
 function downloadFromSF(sfProject, fileName) {
@@ -139,7 +144,7 @@ async function processProject(project) {
     // Step 1: If there's source code, clone repo, extract, commit, push
     if (project.source) {
       console.log('  Step 1: Extracting source code...');
-      const cloneUrl = `https://${TOKEN}@github.com/${OWNER}/${project.repo}.git`;
+      const cloneUrl = `https://github.com/${OWNER}/${project.repo}.git`;
       const repoDir = path.join(tmpDir, 'repo');
       run(`git clone "${cloneUrl}" "${repoDir}"`);
 

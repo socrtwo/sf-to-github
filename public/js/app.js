@@ -341,26 +341,59 @@
         codeTabResults.hidden = false;
 
         if (allHaveCode) {
-          codeTabResults.innerHTML = '<div class="results-panel success"><strong>All ' + urls.length + ' project(s) have Code tabs.</strong> Proceed to Step 2.</div>';
+          codeTabResults.innerHTML = '';
+          var successDiv = document.createElement('div');
+          successDiv.className = 'results-panel success';
+          var successStrong = document.createElement('strong');
+          successStrong.textContent = 'All ' + urls.length + ' project(s) have Code tabs. Proceed to Step 2.';
+          successDiv.appendChild(successStrong);
+          codeTabResults.appendChild(successDiv);
           log('All projects have Code tabs!', 'log-success');
         } else {
-          var html = '<div class="results-panel warning">';
-          html += '<strong>' + missingTabs.length + ' project(s) need a Code tab created:</strong>';
-          html += '<ul>';
+          codeTabResults.innerHTML = '';
+          var warnDiv = document.createElement('div');
+          warnDiv.className = 'results-panel warning';
+
+          var countStrong = document.createElement('strong');
+          countStrong.textContent = missingTabs.length + ' project(s) need a Code tab created:';
+          warnDiv.appendChild(countStrong);
+
+          var ul = document.createElement('ul');
           missingTabs.forEach(function (name) {
-            html += '<li><a href="https://sourceforge.net/p/' + encodeURIComponent(name) + '/admin/tools" target="_blank" rel="noopener">' + name + ' — Create Code Tab</a></li>';
+            var li = document.createElement('li');
+            var a = document.createElement('a');
+            a.href = 'https://sourceforge.net/p/' + encodeURIComponent(name) + '/admin/tools';
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = name + ' \u2014 Create Code Tab';
+            li.appendChild(a);
+            ul.appendChild(li);
           });
-          html += '</ul>';
-          html += '<p style="margin-top:12px"><strong>How to add a Code tab:</strong></p>';
-          html += '<ol>';
-          html += '<li>Click the link above to open the project\'s Admin &rarr; Tools page</li>';
-          html += '<li>Find the "Available Tools" section</li>';
-          html += '<li>Click <strong>"Git"</strong> to add a Git Code tab</li>';
-          html += '<li>Click <strong>"Save"</strong></li>';
-          html += '<li>Come back here and re-run this check</li>';
-          html += '</ol>';
-          html += '</div>';
-          codeTabResults.innerHTML = html;
+          warnDiv.appendChild(ul);
+
+          var howTo = document.createElement('p');
+          howTo.style.marginTop = '12px';
+          var howToStrong = document.createElement('strong');
+          howToStrong.textContent = 'How to add a Code tab:';
+          howTo.appendChild(howToStrong);
+          warnDiv.appendChild(howTo);
+
+          var ol = document.createElement('ol');
+          var steps = [
+            'Click the link above to open the project\u2019s Admin \u2192 Tools page',
+            'Find the "Available Tools" section',
+            'Click "Git" to add a Git Code tab',
+            'Click "Save"',
+            'Come back here and re-run this check'
+          ];
+          steps.forEach(function (text) {
+            var li = document.createElement('li');
+            li.textContent = text;
+            ol.appendChild(li);
+          });
+          warnDiv.appendChild(ol);
+
+          codeTabResults.appendChild(warnDiv);
           log(missingTabs.length + ' project(s) need Code tabs — see links above.', 'log-warn');
         }
 
