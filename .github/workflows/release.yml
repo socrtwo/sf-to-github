@@ -263,12 +263,53 @@ jobs:
           name: web
           path: '*.zip'
 
+  # ─── ChromeOS (installable PWA bundle) ───────────────────────────────────────
+  # ChromeOS treats PWAs as first-class apps. The app already ships a full PWA
+  # in public/ (manifest.json + sw.js), so we package that as a ChromeOS bundle
+  # the same way the web leg packages the server app.
+  build-chromeos:
+    name: ChromeOS
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package ChromeOS PWA bundle
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          rm -rf chromeos-stage && mkdir -p chromeos-stage/app
+          cp -r public/. chromeos-stage/app/
+          {
+            echo "SF2GH Migrator - ChromeOS"
+            echo ""
+            echo "ChromeOS treats Progressive Web Apps as first-class apps;"
+            echo "no APK, extension, or signing is required."
+            echo ""
+            echo "Install (recommended):"
+            echo "  1. Open the hosted app in Chrome on your Chromebook."
+            echo "  2. Click the install icon in the address bar (or menu ->"
+            echo "     Install SF2GH Migrator)."
+            echo "  3. The app appears in your launcher and works offline."
+            echo ""
+            echo "Run from this bundle (offline / client-side mode):"
+            echo "  1. Unzip into Files -> My files."
+            echo "  2. Open app/index.html in Chrome."
+            echo ""
+            echo "Chromebooks with Play Store support can alternatively sideload"
+            echo "the Android APK from this same release."
+          } > chromeos-stage/INSTALL-CHROMEOS.txt
+          cd chromeos-stage && zip -r "../SF2GH-Migrator-${VERSION}-chromeos.zip" . && cd ..
+          ls -lh "SF2GH-Migrator-${VERSION}-chromeos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chromeos
+          path: '*-chromeos.zip'
+
   # ─── Create GitHub Release with all artifacts ─────────────────────────────────
   release:
     name: Publish Release
     # Always run even if some platform builds failed — publish whatever succeeded
     if: always()
-    needs: [build-windows, build-macos, build-linux, build-android, build-ios, build-web]
+    needs: [build-windows, build-macos, build-linux, build-android, build-ios, build-web, build-chromeos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -303,6 +344,7 @@ jobs:
             | Linux    | `*.rpm` | Fedora / Red Hat |
             | Android  | `*-android.apk` | Sideload: enable "Install unknown apps" in Settings |
             | iOS      | `*-ios-unsigned.ipa` | Install via AltStore or Apple TestFlight |
+            | ChromeOS | `*-chromeos.zip` | Install the PWA from Chrome, or open `app/index.html`; Play-Store Chromebooks can sideload the APK |
             | Web      | `*-web.zip` | Extract and run `npm install && npm start`, then open http://localhost:3000 |
 
             > **Mobile / browser users:** The Android APK and iOS IPA run the migration entirely on-device — no server needed.
