@@ -258,6 +258,34 @@ jobs:
             "ClickHereToStart-Termux.sh" \
             --exclude "node_modules/.cache/*" \
             --exclude "node_modules/.package-lock.json"
+
+          # ChromeOS — exact same web bundle plus ChromeOS install instructions
+          printf '%s\n' \
+            "# SF2GH Migrator ${VERSION} — ChromeOS" \
+            '' \
+            '## Easiest: install the web app (PWA)' \
+            '' \
+            '1. Open https://socrtwo.github.io/sf-to-github/ in Chrome on your Chromebook.' \
+            '2. Click the install icon in the address bar ("Install app").' \
+            '3. The app appears in the ChromeOS launcher — pin it to the shelf if you like.' \
+            '' \
+            '## Or: run the Linux desktop app' \
+            '' \
+            'If your Chromebook has Linux (Crostini) turned on (Settings -> About ChromeOS -> Linux development environment):' \
+            '' \
+            '1. Download the .deb file from this same release page.' \
+            '2. Double-click the .deb in the Files app — ChromeOS installs it like a normal app.' \
+            '3. Or download the .AppImage instead, then in the Linux terminal run:' \
+            '   chmod +x SF2GH.Migrator-*.AppImage && ./SF2GH.Migrator-*.AppImage' \
+            '' \
+            '## Or: run this zip with Node.js in the Linux container' \
+            '' \
+            '1. Unzip this file inside your Linux files.' \
+            '2. In the Linux terminal, run: bash ClickHereToStart-MacOrLinux.sh' \
+            '3. Open http://localhost:3000 in Chrome.' \
+            > INSTALL.md
+          cp "SF2GH-Migrator-${VERSION}-web.zip" "SF2GH-Migrator-${VERSION}-chromeos.zip"
+          zip "SF2GH-Migrator-${VERSION}-chromeos.zip" INSTALL.md
       - uses: actions/upload-artifact@v4
         with:
           name: web
@@ -304,6 +332,7 @@ jobs:
             | Android  | `*-android.apk` | Sideload: enable "Install unknown apps" in Settings |
             | iOS      | `*-ios-unsigned.ipa` | Install via AltStore or Apple TestFlight |
             | Web      | `*-web.zip` | Extract and run `npm install && npm start`, then open http://localhost:3000 |
+            | ChromeOS | `*-chromeos.zip` | Easiest: open https://socrtwo.github.io/sf-to-github/ in Chrome and click **Install app**. The zip bundles the web app + `INSTALL.md` (also covers running the `.deb`/`.AppImage` in the ChromeOS Linux container) |
 
             > **Mobile / browser users:** The Android APK and iOS IPA run the migration entirely on-device — no server needed.
             > The web zip requires Node.js to run the server. For browser-only use, open the app in any modern browser and it will automatically switch to client-side mode if the server is unavailable.
