@@ -24,6 +24,10 @@ jobs:
     name: Windows
     runs-on: windows-latest
     continue-on-error: true
+    environment: release
+    permissions:
+      id-token: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,6 +37,26 @@ jobs:
       - run: npm ci
       - name: Build Windows installer & portable
         run: npm run electron:build -- --win --publish never
+      - name: Azure login (OIDC, no stored secret)
+        if: vars.AZURE_TENANT_ID != ''
+        uses: azure/login@v2
+        with:
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign Windows binaries with Azure Trusted Signing
+        if: vars.AZURE_TENANT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          endpoint: ${{ vars.TS_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.TS_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.TS_CERT_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
       - uses: actions/upload-artifact@v4
         with:
           name: windows
