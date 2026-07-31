@@ -1,0 +1,388 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+
+  <Id>c3d4e5f6-a7b8-9012-cdef-123456789012</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Quick Access Add-in</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Quick Access Toolbar"/>
+  <Description DefaultValue="All your favorite Quick Access Toolbar commands in one dropdown menu."/>
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
+  <SupportUrl DefaultValue="https://github.com/socrtwo/sf-to-github"/>
+
+  <Hosts>
+    <Host Name="Presentation"/>
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Presentation">
+        <DesktopFormFactor>
+
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.Description"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+
+          <FunctionFile resid="Commands.Url"/>
+
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <CustomTab id="QuickAccessTab">
+              <Group id="QAT.FileGroup">
+                <Label resid="FileGroup.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16"/>
+                  <bt:Image size="32" resid="Icon.32x32"/>
+                  <bt:Image size="80" resid="Icon.80x80"/>
+                </Icon>
+
+                <!-- FILE menu -->
+                <Control xsi:type="Menu" id="QAT.FileMenu">
+                  <Label resid="FileMenu.Label"/>
+                  <Supertip>
+                    <Title resid="FileMenu.Label"/>
+                    <Description resid="FileMenu.Tip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16x16"/>
+                    <bt:Image size="32" resid="Icon.32x32"/>
+                    <bt:Image size="80" resid="Icon.80x80"/>
+                  </Icon>
+                  <Items>
+                    <Item id="QAT.Save">
+                      <Label resid="Save.Label"/>
+                      <Supertip><Title resid="Save.Label"/><Description resid="Save.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdSave</FunctionName></Action>
+                    </Item>
+                    <Item id="QAT.Print">
+                      <Label resid="Print.Label"/>
+                      <Supertip><Title resid="Print.Label"/><Description resid="Print.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdPrint</FunctionName></Action>
+                    </Item>
+                  </Items>
+                </Control>
+              </Group>
+
+              <Group id="QAT.EditGroup">
+                <Label resid="EditGroup.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16"/>
+                  <bt:Image size="32" resid="Icon.32x32"/>
+                  <bt:Image size="80" resid="Icon.80x80"/>
+                </Icon>
+
+                <!-- EDIT menu -->
+                <Control xsi:type="Menu" id="QAT.EditMenu">
+                  <Label resid="EditMenu.Label"/>
+                  <Supertip><Title resid="EditMenu.Label"/><Description resid="EditMenu.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                  <Items>
+                    <Item id="QAT.Undo">
+                      <Label resid="Undo.Label"/>
+                      <Supertip><Title resid="Undo.Label"/><Description resid="Undo.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdUndo</FunctionName></Action>
+                    </Item>
+                    <Item id="QAT.Redo">
+                      <Label resid="Redo.Label"/>
+                      <Supertip><Title resid="Redo.Label"/><Description resid="Redo.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdRedo</FunctionName></Action>
+                    </Item>
+                    <Item id="QAT.SelectAll">
+                      <Label resid="SelectAll.Label"/>
+                      <Supertip><Title resid="SelectAll.Label"/><Description resid="SelectAll.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdSelectAll</FunctionName></Action>
+                    </Item>
+                  </Items>
+                </Control>
+              </Group>
+
+              <Group id="QAT.FormatGroup">
+                <Label resid="FormatGroup.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16"/>
+                  <bt:Image size="32" resid="Icon.32x32"/>
+                  <bt:Image size="80" resid="Icon.80x80"/>
+                </Icon>
+
+                <!-- FORMAT menu -->
+                <Control xsi:type="Menu" id="QAT.FormatMenu">
+                  <Label resid="FormatMenu.Label"/>
+                  <Supertip><Title resid="FormatMenu.Label"/><Description resid="FormatMenu.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                  <Items>
+                    <Item id="QAT.Bold">
+                      <Label resid="Bold.Label"/>
+                      <Supertip><Title resid="Bold.Label"/><Description resid="Bold.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdBold</FunctionName></Action>
+                    </Item>
+                    <Item id="QAT.Italic">
+                      <Label resid="Italic.Label"/>
+                      <Supertip><Title resid="Italic.Label"/><Description resid="Italic.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdItalic</FunctionName></Action>
+                    </Item>
+                    <Item id="QAT.Underline">
+                      <Label resid="Underline.Label"/>
+                      <Supertip><Title resid="Underline.Label"/><Description resid="Underline.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdUnderline</FunctionName></Action>
+                    </Item>
+                    <Item id="QAT.Strikethrough">
+                      <Label resid="Strikethrough.Label"/>
+                      <Supertip><Title resid="Strikethrough.Label"/><Description resid="Strikethrough.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdStrikethrough</FunctionName></Action>
+                    </Item>
+                    <Item id="QAT.Superscript">
+                      <Label resid="Superscript.Label"/>
+                      <Supertip><Title resid="Superscript.Label"/><Description resid="Superscript.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdSuperscript</FunctionName></Action>
+                    </Item>
+                    <Item id="QAT.Subscript">
+                      <Label resid="Subscript.Label"/>
+                      <Supertip><Title resid="Subscript.Label"/><Description resid="Subscript.Tip"/></Supertip>
+                      <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                      <Action xsi:type="ExecuteFunction"><FunctionName>cmdSubscript</FunctionName></Action>
+                    </Item>
+                  </Items>
+                </Control>
+
+                <!-- FONT SIZE menu -->
+                <Control xsi:type="Menu" id="QAT.FontSizeMenu">
+                  <Label resid="FontSizeMenu.Label"/>
+                  <Supertip><Title resid="FontSizeMenu.Label"/><Description resid="FontSizeMenu.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                  <Items>
+                    <Item id="QAT.FontSize8"><Label resid="FontSize8.Label"/><Supertip><Title resid="FontSize8.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize8</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize10"><Label resid="FontSize10.Label"/><Supertip><Title resid="FontSize10.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize10</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize11"><Label resid="FontSize11.Label"/><Supertip><Title resid="FontSize11.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize11</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize12"><Label resid="FontSize12.Label"/><Supertip><Title resid="FontSize12.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize12</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize14"><Label resid="FontSize14.Label"/><Supertip><Title resid="FontSize14.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize14</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize16"><Label resid="FontSize16.Label"/><Supertip><Title resid="FontSize16.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize16</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize18"><Label resid="FontSize18.Label"/><Supertip><Title resid="FontSize18.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize18</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize20"><Label resid="FontSize20.Label"/><Supertip><Title resid="FontSize20.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize20</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize24"><Label resid="FontSize24.Label"/><Supertip><Title resid="FontSize24.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize24</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize28"><Label resid="FontSize28.Label"/><Supertip><Title resid="FontSize28.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize28</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize36"><Label resid="FontSize36.Label"/><Supertip><Title resid="FontSize36.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize36</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize48"><Label resid="FontSize48.Label"/><Supertip><Title resid="FontSize48.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize48</FunctionName></Action></Item>
+                    <Item id="QAT.FontSize72"><Label resid="FontSize72.Label"/><Supertip><Title resid="FontSize72.Label"/><Description resid="FontSize.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdFontSize72</FunctionName></Action></Item>
+                  </Items>
+                </Control>
+
+                <!-- COLOR menu -->
+                <Control xsi:type="Menu" id="QAT.ColorMenu">
+                  <Label resid="ColorMenu.Label"/>
+                  <Supertip><Title resid="ColorMenu.Label"/><Description resid="ColorMenu.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                  <Items>
+                    <Item id="QAT.ColorBlack"><Label resid="ColorBlack.Label"/><Supertip><Title resid="ColorBlack.Label"/><Description resid="Color.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdColorBlack</FunctionName></Action></Item>
+                    <Item id="QAT.ColorRed"><Label resid="ColorRed.Label"/><Supertip><Title resid="ColorRed.Label"/><Description resid="Color.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdColorRed</FunctionName></Action></Item>
+                    <Item id="QAT.ColorBlue"><Label resid="ColorBlue.Label"/><Supertip><Title resid="ColorBlue.Label"/><Description resid="Color.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdColorBlue</FunctionName></Action></Item>
+                    <Item id="QAT.ColorGreen"><Label resid="ColorGreen.Label"/><Supertip><Title resid="ColorGreen.Label"/><Description resid="Color.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdColorGreen</FunctionName></Action></Item>
+                    <Item id="QAT.ColorOrange"><Label resid="ColorOrange.Label"/><Supertip><Title resid="ColorOrange.Label"/><Description resid="Color.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdColorOrange</FunctionName></Action></Item>
+                    <Item id="QAT.ColorPurple"><Label resid="ColorPurple.Label"/><Supertip><Title resid="ColorPurple.Label"/><Description resid="Color.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdColorPurple</FunctionName></Action></Item>
+                  </Items>
+                </Control>
+              </Group>
+
+              <Group id="QAT.AlignGroup">
+                <Label resid="AlignGroup.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16"/>
+                  <bt:Image size="32" resid="Icon.32x32"/>
+                  <bt:Image size="80" resid="Icon.80x80"/>
+                </Icon>
+
+                <!-- ALIGNMENT menu -->
+                <Control xsi:type="Menu" id="QAT.AlignMenu">
+                  <Label resid="AlignMenu.Label"/>
+                  <Supertip><Title resid="AlignMenu.Label"/><Description resid="AlignMenu.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                  <Items>
+                    <Item id="QAT.AlignLeft"><Label resid="AlignLeft.Label"/><Supertip><Title resid="AlignLeft.Label"/><Description resid="Align.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdAlignLeft</FunctionName></Action></Item>
+                    <Item id="QAT.AlignCenter"><Label resid="AlignCenter.Label"/><Supertip><Title resid="AlignCenter.Label"/><Description resid="Align.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdAlignCenter</FunctionName></Action></Item>
+                    <Item id="QAT.AlignRight"><Label resid="AlignRight.Label"/><Supertip><Title resid="AlignRight.Label"/><Description resid="Align.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdAlignRight</FunctionName></Action></Item>
+                    <Item id="QAT.AlignJustify"><Label resid="AlignJustify.Label"/><Supertip><Title resid="AlignJustify.Label"/><Description resid="Align.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdAlignJustify</FunctionName></Action></Item>
+                  </Items>
+                </Control>
+
+                <!-- HIGHLIGHT menu -->
+                <Control xsi:type="Menu" id="QAT.HighlightMenu">
+                  <Label resid="HighlightMenu.Label"/>
+                  <Supertip><Title resid="HighlightMenu.Label"/><Description resid="HighlightMenu.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                  <Items>
+                    <Item id="QAT.HighlightYellow"><Label resid="HighlightYellow.Label"/><Supertip><Title resid="HighlightYellow.Label"/><Description resid="Highlight.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdHighlightYellow</FunctionName></Action></Item>
+                    <Item id="QAT.HighlightNone"><Label resid="HighlightNone.Label"/><Supertip><Title resid="HighlightNone.Label"/><Description resid="Highlight.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdHighlightNone</FunctionName></Action></Item>
+                  </Items>
+                </Control>
+              </Group>
+
+              <Group id="QAT.InsertGroup">
+                <Label resid="InsertGroup.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16"/>
+                  <bt:Image size="32" resid="Icon.32x32"/>
+                  <bt:Image size="80" resid="Icon.80x80"/>
+                </Icon>
+
+                <!-- INSERT menu -->
+                <Control xsi:type="Menu" id="QAT.InsertMenu">
+                  <Label resid="InsertMenu.Label"/>
+                  <Supertip><Title resid="InsertMenu.Label"/><Description resid="InsertMenu.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                  <Items>
+                    <Item id="QAT.InsertTable"><Label resid="InsertTable.Label"/><Supertip><Title resid="InsertTable.Label"/><Description resid="InsertTable.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdInsertTable</FunctionName></Action></Item>
+                    <Item id="QAT.InsertPageBreak"><Label resid="InsertPageBreak.Label"/><Supertip><Title resid="InsertPageBreak.Label"/><Description resid="InsertPageBreak.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdInsertPageBreak</FunctionName></Action></Item>
+                    <Item id="QAT.InsertHorizontalLine"><Label resid="InsertHLine.Label"/><Supertip><Title resid="InsertHLine.Label"/><Description resid="InsertHLine.Tip"/></Supertip><Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon><Action xsi:type="ExecuteFunction"><FunctionName>cmdInsertHorizontalLine</FunctionName></Action></Item>
+                  </Items>
+                </Control>
+              </Group>
+
+              <Group id="QAT.PanelGroup">
+                <Label resid="PanelGroup.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16"/>
+                  <bt:Image size="32" resid="Icon.32x32"/>
+                  <bt:Image size="80" resid="Icon.80x80"/>
+                </Icon>
+                <Control xsi:type="Button" id="QAT.OpenPanel">
+                  <Label resid="OpenPanel.Label"/>
+                  <Supertip><Title resid="OpenPanel.Label"/><Description resid="OpenPanel.Tip"/></Supertip>
+                  <Icon><bt:Image size="16" resid="Icon.16x16"/><bt:Image size="32" resid="Icon.32x32"/><bt:Image size="80" resid="Icon.80x80"/></Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>QuickAccessPane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+
+              <Label resid="Tab.Label"/>
+            </CustomTab>
+          </ExtensionPoint>
+
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
+        <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+        <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/socrtwo/sf-to-github"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="Tab.Label" DefaultValue="Quick Access"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Quick Access Toolbar Add-in"/>
+        <bt:String id="FileGroup.Label" DefaultValue="File"/>
+        <bt:String id="FileMenu.Label" DefaultValue="File"/>
+        <bt:String id="EditGroup.Label" DefaultValue="Edit"/>
+        <bt:String id="EditMenu.Label" DefaultValue="Edit"/>
+        <bt:String id="FormatGroup.Label" DefaultValue="Format"/>
+        <bt:String id="FormatMenu.Label" DefaultValue="Text Format"/>
+        <bt:String id="FontSizeMenu.Label" DefaultValue="Font Size"/>
+        <bt:String id="ColorMenu.Label" DefaultValue="Font Color"/>
+        <bt:String id="AlignGroup.Label" DefaultValue="Layout"/>
+        <bt:String id="AlignMenu.Label" DefaultValue="Alignment"/>
+        <bt:String id="HighlightMenu.Label" DefaultValue="Highlight"/>
+        <bt:String id="InsertGroup.Label" DefaultValue="Insert"/>
+        <bt:String id="InsertMenu.Label" DefaultValue="Insert"/>
+        <bt:String id="PanelGroup.Label" DefaultValue="Panel"/>
+        <bt:String id="OpenPanel.Label" DefaultValue="Open Panel"/>
+        <bt:String id="Save.Label" DefaultValue="Save"/>
+        <bt:String id="Print.Label" DefaultValue="Print"/>
+        <bt:String id="Undo.Label" DefaultValue="Undo"/>
+        <bt:String id="Redo.Label" DefaultValue="Redo"/>
+        <bt:String id="SelectAll.Label" DefaultValue="Select All"/>
+        <bt:String id="Bold.Label" DefaultValue="Bold"/>
+        <bt:String id="Italic.Label" DefaultValue="Italic"/>
+        <bt:String id="Underline.Label" DefaultValue="Underline"/>
+        <bt:String id="Strikethrough.Label" DefaultValue="Strikethrough"/>
+        <bt:String id="Superscript.Label" DefaultValue="Superscript"/>
+        <bt:String id="Subscript.Label" DefaultValue="Subscript"/>
+        <bt:String id="FontSize8.Label" DefaultValue="8 pt"/>
+        <bt:String id="FontSize10.Label" DefaultValue="10 pt"/>
+        <bt:String id="FontSize11.Label" DefaultValue="11 pt"/>
+        <bt:String id="FontSize12.Label" DefaultValue="12 pt"/>
+        <bt:String id="FontSize14.Label" DefaultValue="14 pt"/>
+        <bt:String id="FontSize16.Label" DefaultValue="16 pt"/>
+        <bt:String id="FontSize18.Label" DefaultValue="18 pt"/>
+        <bt:String id="FontSize20.Label" DefaultValue="20 pt"/>
+        <bt:String id="FontSize24.Label" DefaultValue="24 pt"/>
+        <bt:String id="FontSize28.Label" DefaultValue="28 pt"/>
+        <bt:String id="FontSize36.Label" DefaultValue="36 pt"/>
+        <bt:String id="FontSize48.Label" DefaultValue="48 pt"/>
+        <bt:String id="FontSize72.Label" DefaultValue="72 pt"/>
+        <bt:String id="ColorBlack.Label" DefaultValue="Black"/>
+        <bt:String id="ColorRed.Label" DefaultValue="Red"/>
+        <bt:String id="ColorBlue.Label" DefaultValue="Blue"/>
+        <bt:String id="ColorGreen.Label" DefaultValue="Green"/>
+        <bt:String id="ColorOrange.Label" DefaultValue="Orange"/>
+        <bt:String id="ColorPurple.Label" DefaultValue="Purple"/>
+        <bt:String id="HighlightYellow.Label" DefaultValue="Yellow Highlight"/>
+        <bt:String id="HighlightNone.Label" DefaultValue="Remove Highlight"/>
+        <bt:String id="AlignLeft.Label" DefaultValue="Align Left"/>
+        <bt:String id="AlignCenter.Label" DefaultValue="Center"/>
+        <bt:String id="AlignRight.Label" DefaultValue="Align Right"/>
+        <bt:String id="AlignJustify.Label" DefaultValue="Justify"/>
+        <bt:String id="InsertTable.Label" DefaultValue="Insert Table"/>
+        <bt:String id="InsertPageBreak.Label" DefaultValue="Page Break"/>
+        <bt:String id="InsertHLine.Label" DefaultValue="Horizontal Line"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="GetStarted.Description" DefaultValue="Quick Access Toolbar commands in one convenient dropdown menu."/>
+        <bt:String id="FileMenu.Tip" DefaultValue="File operations: Save, Print"/>
+        <bt:String id="EditMenu.Tip" DefaultValue="Edit operations: Undo, Redo, Select All"/>
+        <bt:String id="FormatMenu.Tip" DefaultValue="Text formatting: Bold, Italic, Underline, etc."/>
+        <bt:String id="FontSizeMenu.Tip" DefaultValue="Set font size for selected text"/>
+        <bt:String id="ColorMenu.Tip" DefaultValue="Set font color for selected text"/>
+        <bt:String id="AlignMenu.Tip" DefaultValue="Set paragraph alignment"/>
+        <bt:String id="HighlightMenu.Tip" DefaultValue="Highlight selected text"/>
+        <bt:String id="InsertMenu.Tip" DefaultValue="Insert objects into the document"/>
+        <bt:String id="OpenPanel.Tip" DefaultValue="Open the Quick Access panel with all commands"/>
+        <bt:String id="Save.Tip" DefaultValue="Save the current document"/>
+        <bt:String id="Print.Tip" DefaultValue="Print the document (opens system print dialog)"/>
+        <bt:String id="Undo.Tip" DefaultValue="Undo the last action (Ctrl+Z)"/>
+        <bt:String id="Redo.Tip" DefaultValue="Redo the last undone action (Ctrl+Y)"/>
+        <bt:String id="SelectAll.Tip" DefaultValue="Select all content in the document"/>
+        <bt:String id="Bold.Tip" DefaultValue="Toggle bold on selected text"/>
+        <bt:String id="Italic.Tip" DefaultValue="Toggle italic on selected text"/>
+        <bt:String id="Underline.Tip" DefaultValue="Toggle underline on selected text"/>
+        <bt:String id="Strikethrough.Tip" DefaultValue="Toggle strikethrough on selected text"/>
+        <bt:String id="Superscript.Tip" DefaultValue="Toggle superscript on selected text"/>
+        <bt:String id="Subscript.Tip" DefaultValue="Toggle subscript on selected text"/>
+        <bt:String id="FontSize.Tip" DefaultValue="Set font size for selected text"/>
+        <bt:String id="Color.Tip" DefaultValue="Set font color for selected text"/>
+        <bt:String id="Highlight.Tip" DefaultValue="Apply or remove text highlight"/>
+        <bt:String id="Align.Tip" DefaultValue="Set paragraph alignment"/>
+        <bt:String id="InsertTable.Tip" DefaultValue="Insert a 3x3 table"/>
+        <bt:String id="InsertPageBreak.Tip" DefaultValue="Insert a page break"/>
+        <bt:String id="InsertHLine.Tip" DefaultValue="Insert a horizontal line"/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
