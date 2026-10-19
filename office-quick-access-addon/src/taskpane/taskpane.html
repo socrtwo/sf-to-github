@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quick Access Toolbar</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <link rel="stylesheet" href="taskpane.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Quick Access</h1>
+            <p class="subtitle">Common commands at your fingertips</p>
+        </header>
+
+        <div class="section">
+            <h2 class="section-title" data-toggle="file-section">File</h2>
+            <div id="file-section" class="button-grid">
+                <button class="cmd-btn" data-cmd="save" title="Save">
+                    <span class="icon">&#128190;</span> Save
+                </button>
+                <button class="cmd-btn" data-cmd="print" title="Print (Ctrl+P)">
+                    <span class="icon">&#128424;</span> Print
+                </button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title" data-toggle="edit-section">Edit</h2>
+            <div id="edit-section" class="button-grid">
+                <button class="cmd-btn" data-cmd="undo" title="Undo (Ctrl+Z)">
+                    <span class="icon">&#8630;</span> Undo
+                </button>
+                <button class="cmd-btn" data-cmd="redo" title="Redo (Ctrl+Y)">
+                    <span class="icon">&#8631;</span> Redo
+                </button>
+                <button class="cmd-btn" data-cmd="selectAll" title="Select All">
+                    <span class="icon">&#9744;</span> Select All
+                </button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title" data-toggle="format-section">Format</h2>
+            <div id="format-section" class="button-grid">
+                <button class="cmd-btn" data-cmd="bold" title="Bold">
+                    <span class="icon"><b>B</b></span> Bold
+                </button>
+                <button class="cmd-btn" data-cmd="italic" title="Italic">
+                    <span class="icon"><i>I</i></span> Italic
+                </button>
+                <button class="cmd-btn" data-cmd="underline" title="Underline">
+                    <span class="icon"><u>U</u></span> Underline
+                </button>
+                <button class="cmd-btn" data-cmd="strikethrough" title="Strikethrough">
+                    <span class="icon"><s>S</s></span> Strikethrough
+                </button>
+                <button class="cmd-btn" data-cmd="superscript" title="Superscript">
+                    <span class="icon">X<sup>2</sup></span> Superscript
+                </button>
+                <button class="cmd-btn" data-cmd="subscript" title="Subscript">
+                    <span class="icon">X<sub>2</sub></span> Subscript
+                </button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title" data-toggle="fontsize-section">Font Size</h2>
+            <div id="fontsize-section" class="button-grid size-grid">
+                <button class="cmd-btn size-btn" data-cmd="fontSize8">8</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize10">10</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize11">11</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize12">12</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize14">14</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize16">16</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize18">18</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize20">20</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize24">24</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize28">28</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize36">36</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize48">48</button>
+                <button class="cmd-btn size-btn" data-cmd="fontSize72">72</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title" data-toggle="color-section">Font Color</h2>
+            <div id="color-section" class="button-grid color-grid">
+                <button class="cmd-btn color-btn" data-cmd="colorBlack" style="background:#000;color:#fff;" title="Black">A</button>
+                <button class="cmd-btn color-btn" data-cmd="colorRed" style="background:#FF0000;color:#fff;" title="Red">A</button>
+                <button class="cmd-btn color-btn" data-cmd="colorBlue" style="background:#0000FF;color:#fff;" title="Blue">A</button>
+                <button class="cmd-btn color-btn" data-cmd="colorGreen" style="background:#008000;color:#fff;" title="Green">A</button>
+                <button class="cmd-btn color-btn" data-cmd="colorOrange" style="background:#FFA500;color:#fff;" title="Orange">A</button>
+                <button class="cmd-btn color-btn" data-cmd="colorPurple" style="background:#800080;color:#fff;" title="Purple">A</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title" data-toggle="highlight-section">Highlight</h2>
+            <div id="highlight-section" class="button-grid">
+                <button class="cmd-btn" data-cmd="highlightYellow" style="background:#FFFF00;" title="Yellow Highlight">
+                    Highlight
+                </button>
+                <button class="cmd-btn" data-cmd="highlightNone" title="Remove Highlight">
+                    No Highlight
+                </button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title" data-toggle="align-section">Alignment</h2>
+            <div id="align-section" class="button-grid">
+                <button class="cmd-btn" data-cmd="alignLeft" title="Align Left">
+                    <span class="icon">&#8676;</span> Left
+                </button>
+                <button class="cmd-btn" data-cmd="alignCenter" title="Center">
+                    <span class="icon">&#8596;</span> Center
+                </button>
+                <button class="cmd-btn" data-cmd="alignRight" title="Align Right">
+                    <span class="icon">&#8677;</span> Right
+                </button>
+                <button class="cmd-btn" data-cmd="alignJustify" title="Justify">
+                    <span class="icon">&#9776;</span> Justify
+                </button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title" data-toggle="insert-section">Insert</h2>
+            <div id="insert-section" class="button-grid">
+                <button class="cmd-btn" data-cmd="insertTable" title="Insert 3x3 Table">
+                    <span class="icon">&#9638;</span> Table
+                </button>
+                <button class="cmd-btn" data-cmd="insertPageBreak" title="Insert Page Break">
+                    <span class="icon">&#8629;</span> Page Break
+                </button>
+                <button class="cmd-btn" data-cmd="insertHorizontalLine" title="Horizontal Line">
+                    <span class="icon">&mdash;</span> H. Line
+                </button>
+            </div>
+        </div>
+
+        <footer>
+            <p class="hint">Some commands require keyboard shortcuts.<br>
+            Hover over buttons for details.</p>
+        </footer>
+    </div>
+
+    <script src="taskpane.js"></script>
+</body>
+</html>
