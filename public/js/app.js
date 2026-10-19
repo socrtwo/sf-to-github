@@ -344,23 +344,26 @@
           codeTabResults.innerHTML = '<div class="results-panel success"><strong>All ' + urls.length + ' project(s) have Code tabs.</strong> Proceed to Step 2.</div>';
           log('All projects have Code tabs!', 'log-success');
         } else {
-          var html = '<div class="results-panel warning">';
-          html += '<strong>' + missingTabs.length + ' project(s) need a Code tab created:</strong>';
-          html += '<ul>';
+          codeTabResults.innerHTML = '<div class="results-panel warning"><strong></strong><ul></ul>' +
+            '<p style="margin-top:12px"><strong>How to add a Code tab:</strong></p>' +
+            '<ol><li>Click the link above to open the project\'s Admin &rarr; Tools page</li>' +
+            '<li>Find the "Available Tools" section</li>' +
+            '<li>Click <strong>"Git"</strong> to add a Git Code tab</li>' +
+            '<li>Click <strong>"Save"</strong></li>' +
+            '<li>Come back here and re-run this check</li></ol></div>';
+          var panel = codeTabResults.firstElementChild;
+          panel.querySelector('strong').textContent = missingTabs.length + ' project(s) need a Code tab created:';
+          var missingList = panel.querySelector('ul');
           missingTabs.forEach(function (name) {
-            html += '<li><a href="https://sourceforge.net/p/' + encodeURIComponent(name) + '/admin/tools" target="_blank" rel="noopener">' + name + ' — Create Code Tab</a></li>';
+            var item = document.createElement('li');
+            var link = document.createElement('a');
+            link.href = 'https://sourceforge.net/p/' + encodeURIComponent(name) + '/admin/tools';
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = name + ' — Create Code Tab';
+            item.appendChild(link);
+            missingList.appendChild(item);
           });
-          html += '</ul>';
-          html += '<p style="margin-top:12px"><strong>How to add a Code tab:</strong></p>';
-          html += '<ol>';
-          html += '<li>Click the link above to open the project\'s Admin &rarr; Tools page</li>';
-          html += '<li>Find the "Available Tools" section</li>';
-          html += '<li>Click <strong>"Git"</strong> to add a Git Code tab</li>';
-          html += '<li>Click <strong>"Save"</strong></li>';
-          html += '<li>Come back here and re-run this check</li>';
-          html += '</ol>';
-          html += '</div>';
-          codeTabResults.innerHTML = html;
           log(missingTabs.length + ' project(s) need Code tabs — see links above.', 'log-warn');
         }
 
