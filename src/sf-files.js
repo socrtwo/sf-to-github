@@ -8,6 +8,16 @@ const https = require('https');
 const http = require('http');
 const logger = require('./logger');
 
+function safeFileName(name) {
+  const fileName = path.posix.basename(String(name || '').replace(/\\/g, '/'))
+    .replace(/[\0-\x1f]/g, '_');
+  return fileName && fileName !== '.' && fileName !== '..' ? fileName : 'download';
+}
+
+function safePathJoin(directory, name) {
+  return path.join(directory, safeFileName(name));
+}
+
 /**
  * Download a file from a URL to a local path.
  * Follows redirects (SourceForge uses several).
@@ -101,7 +111,7 @@ async function listSFFiles(projectName) {
             for (const f of filesData.files) {
               if (f.url) {
                 files.push({
-                  name: f.name || path.basename(f.url),
+                  name: safeFileName(f.name || path.basename(f.url)),
                   url: f.url.startsWith('/') ? 'https://sourceforge.net' + f.url : f.url,
                   size: f.size || 0,
                 });
@@ -132,7 +142,7 @@ async function listSFFiles(projectName) {
         if (fileUrl && fileUrl.indexOf('/download') !== -1) {
           const parts = fileUrl.split('/').filter(p => p && p !== 'download');
           const fileName = decodeURIComponent(parts[parts.length - 1] || 'unknown');
-          files.push({ name: fileName, url: fileUrl, size: 0 });
+          files.push({ name: safeFileName(fileName), url: fileUrl, size: 0 });
         }
       }
     } catch (_) { /* RSS may fail */ }
@@ -159,7 +169,7 @@ async function extractArchive(archivePath, destDir) {
     await runCmd('tar', ['xf', archivePath, '-C', destDir]);
   } else {
     // Not an archive — just copy the file into destDir
-    fs.copyFileSync(archivePath, path.join(destDir, path.basename(archivePath)));
+    fs.copyFileSync(archivePath, safePathJoin(destDir, path.basename(archivePath)));
   }
   return destDir;
 }
@@ -180,12 +190,12 @@ function runCmd(cmd, args, opts) {
 function flattenSingleSubdir(dir) {
   const entries = fs.readdirSync(dir);
   if (entries.length === 1) {
-    const child = path.join(dir, entries[0]);
-    if (fs.statSync(child).isDirectory()) {
+    const child = safePathJoin(dir, entries[0]);
+    if (fs.lstatSync(child).isDirectory()) {
       // Move all contents of the single subdirectory up
       const childEntries = fs.readdirSync(child);
       for (const e of childEntries) {
-        fs.renameSync(path.join(child, e), path.join(dir, e));
+        fs.renameSync(safePathJoin(child, e), safePathJoin(dir, e));
       }
       fs.rmdirSync(child);
     }
@@ -218,7 +228,7 @@ async function populateSFCodeTab(projectName, sfUsername, opts = {}) {
   log(`Found ${sfFiles.length} file(s) in Files section.`);
 
   // Step 2: Create temp directories
-  const tmpBase = path.join(os.tmpdir(), `sf2gh-populate-${projectName}-${Date.now()}`);
+  const tmpBase = path.join(os.tmpdir(), `sf2gh-populate-${encodeURIComponent(projectName)}-${Date.now()}`);
   const downloadDir = path.join(tmpBase, 'downloads');
   const extractDir = path.join(tmpBase, 'extracted');
   const repoDir = path.join(tmpBase, 'repo');
@@ -260,7 +270,7 @@ async function populateSFCodeTab(projectName, sfUsername, opts = {}) {
     const toDownload = filesToDownload.slice(0, 20);
     for (let i = 0; i < toDownload.length; i++) {
       const f = toDownload[i];
-      const dest = path.join(downloadDir, f.name);
+      const dest = safePathJoin(downloadDir, f.name);
       log(`Downloading [${i + 1}/${toDownload.length}]: ${f.name}`);
       try {
         await downloadFile(f.url, dest);
@@ -273,7 +283,7 @@ async function populateSFCodeTab(projectName, sfUsername, opts = {}) {
     const downloaded = fs.readdirSync(downloadDir);
     log(`Extracting ${downloaded.length} file(s)...`);
     for (const fname of downloaded) {
-      const fpath = path.join(downloadDir, fname);
+      const fpath = safePathJoin(downloadDir, fname);
       const lower = fname.toLowerCase();
       if (lower.endsWith('.zip') || lower.endsWith('.tar.gz') || lower.endsWith('.tgz') ||
           lower.endsWith('.tar.bz2') || lower.endsWith('.tar')) {
@@ -282,11 +292,11 @@ async function populateSFCodeTab(projectName, sfUsername, opts = {}) {
         } catch (exErr) {
           log(`  Warning: failed to extract ${fname}: ${exErr.message}`);
           // Copy as-is
-          fs.copyFileSync(fpath, path.join(extractDir, fname));
+          fs.copyFileSync(fpath, safePathJoin(extractDir, fname));
         }
       } else {
         // Non-archive files: copy directly
-        fs.copyFileSync(fpath, path.join(extractDir, fname));
+        fs.copyFileSync(fpath, safePathJoin(extractDir, fname));
       }
     }
 

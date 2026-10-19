@@ -56,17 +56,40 @@ window.MobileMigrate = (function () {
     throw new Error('Unrecognized SourceForge URL: ' + rawUrl);
   }
 
-  function getGitUrl(projectName, sfUsername) {
-    // SourceForge HTTPS clone URLs include the username for authentication:
-    //   https://USERNAME@git.code.sf.net/p/PROJECT/code
+  function getGitUrl(projectName, sfUsername, mountPoint) {
     var user = sfUsername ? encodeURIComponent(sfUsername) + '@' : '';
-    return 'https://' + user + 'git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
+    return 'https://' + user + 'git.code.sf.net/p/' + encodeURIComponent(projectName) + '/' + (mountPoint || 'code');
   }
 
-  function getGitRoUrl(projectName) {
-    // Anonymous read-only git protocol — most reliable for cloning, no auth needed:
-    //   git://git.code.sf.net/p/PROJECT/code
-    return 'git://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
+  function getGitRoUrl(projectName, mountPoint) {
+    return 'git://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/' + (mountPoint || 'code');
+  }
+
+  /**
+   * Query the SourceForge REST API to discover available SCM tools for a project.
+   * Returns { scmType, mountPoint } or null if no SCM tool is found.
+   */
+  async function discoverScmTool(projectName) {
+    try {
+      var data = await nativeGetJSON('https://sourceforge.net/rest/p/' + encodeURIComponent(projectName));
+      var tools = data.tools || [];
+      // Prefer git, then svn
+      for (var i = 0; i < tools.length; i++) {
+        var name = (tools[i].name || '').toLowerCase();
+        if (name === 'git' && tools[i].mount_point) {
+          return { scmType: 'git', mountPoint: tools[i].mount_point };
+        }
+      }
+      for (var j = 0; j < tools.length; j++) {
+        var sname = (tools[j].name || '').toLowerCase();
+        if (sname === 'svn' && tools[j].mount_point) {
+          return { scmType: 'svn', mountPoint: tools[j].mount_point };
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 
   function getSshGitUrl(projectName, sfUsername) {
@@ -87,50 +110,54 @@ window.MobileMigrate = (function () {
       var tools = (projectData.tools || []).map(function (t) {
         return { name: t.name, mount_point: t.mount_point };
       });
-      var hasGitTool = tools.some(function (t) {
-        return t.name === 'git' || t.mount_point === 'code' || t.mount_point === 'git';
-      });
-
-      if (!hasGitTool) {
-        return { status: 'no-repo', tools: tools };
+      var scmTool = await discoverScmTool(projectName);
+      if (!scmTool) {
+        var svnTool = tools.find(function (t) {
+          return (t.name || '').toLowerCase() === 'svn' && t.mount_point;
+        });
+        return { status: 'no-repo', scmType: svnTool ? 'svn' : null, tools: tools };
       }
+
+      if (scmTool.scmType === 'svn') {
+        return { status: 'no-repo', scmType: 'svn', mountPoint: scmTool.mountPoint, tools: tools };
+      }
+
+      var gitUrl = getGitUrl(projectName, '', scmTool.mountPoint);
+      var infoUrl = gitUrl + '/info/refs?service=git-upload-pack';
+      var response = await fetch(infoUrl).catch(function () { return null; });
+      if (response && response.ok) {
+        var refs = await response.text();
+        return {
+          status: refs.length < 50 ? 'empty' : 'has-code',
+          mountPoint: scmTool.mountPoint,
+          tools: tools,
+        };
+      }
+      return { status: 'has-code', mountPoint: scmTool.mountPoint, tools: tools };
     } catch (e) {
       // If project API fails, try probing git directly
     }
 
-    // Probe the git repo to see if it has content
-    var gitUrl = getGitUrl(projectName);
-    try {
-      // Try fetching git info/refs — if it works, the repo exists
+    // If the API is unavailable, probe common mount points before falling back.
+    var commonMounts = ['code', 'git', 'svn', projectName];
+    for (var i = 0; i < commonMounts.length; i++) {
+      var mountPoint = commonMounts[i];
+      var gitUrl = getGitUrl(projectName, '', mountPoint);
       var infoUrl = gitUrl + '/info/refs?service=git-upload-pack';
       var res = await fetch(infoUrl).catch(function () { return null; });
       if (res && res.ok) {
         var text = await res.text();
-        // If the response is very short or empty, the repo exists but has no refs
-        if (text.length < 50) {
-          return { status: 'empty', tools: [] };
-        }
-        return { status: 'has-code', tools: [] };
+        return {
+          status: text.length < 50 ? 'empty' : 'has-code',
+          mountPoint: mountPoint,
+          tools: [],
+        };
       }
-      // Try the REST API for the code tool
-      var codeUrl = 'https://sourceforge.net/rest/p/' + encodeURIComponent(projectName) + '/code/';
-      try {
-        var codeData = await nativeGetJSON(codeUrl);
-        // If we get data back, the tool exists
-        if (codeData && codeData.commits && codeData.commits.length > 0) {
-          return { status: 'has-code', tools: [] };
-        }
-        return { status: 'empty', tools: [] };
-      } catch (codeErr) {
-        if (codeErr.status === 404) {
-          return { status: 'no-repo', tools: [] };
-        }
-        // Assume has code if we can't tell (let clone attempt figure it out)
-        return { status: 'has-code', tools: [] };
-      }
-    } catch (e) {
-      return { status: 'has-code', tools: [] };
     }
+
+    // If probing is blocked (for example by browser CORS), let cloning report
+    // the underlying network error rather than incorrectly declaring no repo.
+    return { status: 'has-code', mountPoint: 'code', tools: [] };
   }
 
   // ─── SourceForge Files Download ──────────────────────────────────────────
@@ -273,8 +300,8 @@ window.MobileMigrate = (function () {
       filesCount: uploaded,
       githubUrl: repoData.html_url,
       githubRepo: owner + '/' + repoName,
-    };
-  }
+  };
+}
 
   // ─── Repo Name Sanitization ───────────────────────────────────────────────
 
@@ -310,7 +337,13 @@ window.MobileMigrate = (function () {
         });
         const data = await res.json().catch(function () { return {}; });
         if (!res.ok) {
-          const err = new Error('GitHub API ' + res.status + ': ' + (data.message || res.statusText));
+          var detail = data.message || res.statusText;
+          // Include validation error details from GitHub (e.g. "name already exists on this account")
+          if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+            var errorMsgs = data.errors.map(function (e) { return e.message || e.code || ''; }).filter(Boolean);
+            if (errorMsgs.length > 0) detail += ' (' + errorMsgs.join('; ') + ')';
+          }
+          const err = new Error('GitHub API ' + res.status + ': ' + detail);
           err.status = res.status;
           err.data = data;
           throw err;
@@ -502,8 +535,18 @@ window.MobileMigrate = (function () {
       log('Repository already exists on GitHub, pushing into it.');
       repoData = { html_url: 'https://github.com/' + owner + '/' + repoName };
     } else {
-      repoData = await createRepo(token, repoName, { isPrivate: isPrivate });
-      log('Repository created: ' + repoData.html_url);
+      try {
+        repoData = await createRepo(token, repoName, { isPrivate: isPrivate });
+        log('Repository created: ' + repoData.html_url);
+      } catch (createErr) {
+        // 422 often means the repo already exists (case-insensitive name collision)
+        if (createErr.status === 422) {
+          log('Repository already exists on GitHub, pushing into it.');
+          repoData = { html_url: 'https://github.com/' + owner + '/' + repoName };
+        } else {
+          throw createErr;
+        }
+      }
     }
 
     // Step 2: Clone from SourceForge (all branches + tags)
@@ -623,9 +666,42 @@ window.MobileMigrate = (function () {
       };
     }
 
+    // Discover actual mount point from SourceForge REST API
+    var scmTool = await discoverScmTool(parsed.projectName);
+    if (scmTool && scmTool.scmType === 'svn') {
+      return {
+        projectName: parsed.projectName,
+        scmType: 'svn',
+        sourceUrl: 'https://svn.code.sf.net/p/' + parsed.projectName + '/' + scmTool.mountPoint,
+        githubUrl: 'https://github.com/' + owner + '/' + repoName,
+        steps: [
+          {
+            step: 'unsupported',
+            description: 'SVN migration is not supported on mobile — use the desktop or web app',
+            command: 'N/A',
+          },
+        ],
+      };
+    }
+    if (!scmTool) {
+      return {
+        projectName: parsed.projectName,
+        scmType: 'none',
+        sourceUrl: null,
+        githubUrl: 'https://github.com/' + owner + '/' + repoName,
+        steps: [
+          {
+            step: 'no-repo',
+            description: 'No source code repository found — this project may only use file releases',
+            command: 'N/A',
+          },
+        ],
+      };
+    }
+
     var sfUser = options.sfUsername || '';
-    const gitUrl = getGitUrl(parsed.projectName, sfUser);
-    const scmLabel = parsed.scmType === 'git-assumed' ? 'git (assumed from URL)' : 'git';
+    const gitUrl = getGitUrl(parsed.projectName, sfUser, scmTool.mountPoint);
+    const scmLabel = parsed.scmType === 'git-assumed' ? 'git (discovered via API)' : 'git';
 
     return {
       projectName: parsed.projectName,
@@ -701,10 +777,18 @@ window.MobileMigrate = (function () {
         // ── Step 1: Pre-flight check ──────────────────────────────────
         var repoStatus = await checkSFGitRepo(projectName, function (msg) { log('  ' + msg); });
 
+        if (repoStatus.scmType === 'svn') {
+          log('  SVN project — not supported on mobile. Use the desktop app.');
+          results.push({
+            success: false,
+            sourceUrl: rawUrl,
+            error: 'SVN migration is not supported on mobile — use the desktop or web version',
+          });
+          continue;
+        }
         if (repoStatus.status === 'no-repo') {
           log('  ✗ No Code/git tab found for this project.');
           log('  → Create one at: https://sourceforge.net/p/' + projectName + '/admin/tools');
-          log('  → Click "Git" to add a Code tab, then re-run the migration.');
           results.push({
             success: false,
             sourceUrl: rawUrl,
@@ -712,7 +796,6 @@ window.MobileMigrate = (function () {
           });
           continue;
         }
-
         var sfUser = options.sfUsername || '';
 
         if (repoStatus.status === 'empty') {
@@ -763,7 +846,9 @@ window.MobileMigrate = (function () {
         log('  [2/5] Cloning from SourceForge...');
         // Prefer git:// (anonymous RO, most reliable) for cloning.
         // Native JGit uses HTTPS (git:// not supported by JGit).
-        var gitUrl = hasNativeGit() ? getGitUrl(projectName, sfUser) : getGitRoUrl(projectName);
+        var gitUrl = hasNativeGit()
+          ? getGitUrl(projectName, sfUser, repoStatus.mountPoint)
+          : getGitRoUrl(projectName, repoStatus.mountPoint);
 
         var result = await migrateGitRepo(
           gitUrl,
