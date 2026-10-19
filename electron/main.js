@@ -6,8 +6,24 @@ const path = require('path');
 // Start the Express server
 const server = require('../src/index');
 
-const PORT = process.env.PORT || 3000;
+const PREFERRED_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const MAX_PORT_ATTEMPTS = 10;
 let mainWindow;
+let expressServer;
+
+function tryListen(port, attempt) {
+  return new Promise((resolve, reject) => {
+    const srv = server.listen(port, () => resolve({ srv, port }));
+    srv.on('error', (err) => {
+      if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_ATTEMPTS) {
+        srv.close();
+        resolve(tryListen(port + 1, attempt + 1));
+      } else {
+        reject(err);
+      }
+    });
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -25,9 +41,14 @@ function createWindow() {
     },
   });
 
-  // Start the Express server then load the app
-  const expressServer = server.listen(PORT, () => {
-    mainWindow.loadURL(`http://localhost:${PORT}`);
+  // Start the Express server then load the app, trying next port if in use
+  tryListen(PREFERRED_PORT, 1).then(({ srv, port }) => {
+    expressServer = srv;
+    mainWindow.loadURL(`http://localhost:${port}`);
+  }).catch((err) => {
+    const { dialog } = require('electron');
+    dialog.showErrorBox('Server Error', `Could not start server: ${err.message}`);
+    app.quit();
   });
 
   // Open external links in the default browser
@@ -40,7 +61,7 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
-    expressServer.close();
+    if (expressServer) expressServer.close();
   });
 }
 

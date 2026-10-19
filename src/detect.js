@@ -144,7 +144,9 @@ function probeGit(projectName, mountPoint) {
   if (!/^[a-zA-Z0-9._-]+$/.test(projectName)) {
     return Promise.resolve(false);
   }
-  const gitUrl = `https://git.code.sf.net/p/${projectName}/${mountPoint}`;
+  const mount = mountPoint || 'code';
+  // Use git:// (anonymous RO) — most reliable, no auth needed
+  const gitUrl = `git://git.code.sf.net/p/${projectName}/${mount}`;
   return new Promise((resolve) => {
     execFile(
       'git',
@@ -163,7 +165,7 @@ function probeSvn(projectName, mountPoint) {
   if (!/^[a-zA-Z0-9._-]+$/.test(projectName)) {
     return Promise.resolve(false);
   }
-  const svnUrl = `https://svn.code.sf.net/p/${projectName}/${mountPoint}`;
+  const svnUrl = `https://svn.code.sf.net/p/${projectName}/${mountPoint || 'code'}`;
   return new Promise((resolve) => {
     execFile(
       'svn',
@@ -200,7 +202,7 @@ async function detect(rawUrl) {
     return {
       projectName,
       scmType: ScmType.GIT,
-      gitUrl: `https://git.code.sf.net/p/${projectName}/${mount}`,
+      gitUrl: `git://git.code.sf.net/p/${projectName}/${mount}`,
     };
   }
 
@@ -222,7 +224,7 @@ async function detect(rawUrl) {
       return {
         projectName,
         scmType: ScmType.GIT,
-        gitUrl: `https://git.code.sf.net/p/${projectName}/${tool.mountPoint}`,
+        gitUrl: `git://git.code.sf.net/p/${projectName}/${tool.mountPoint}`,
       };
     }
   }

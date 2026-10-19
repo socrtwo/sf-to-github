@@ -56,9 +56,13 @@ window.MobileMigrate = (function () {
     throw new Error('Unrecognized SourceForge URL: ' + rawUrl);
   }
 
-  function getGitUrl(projectName, mountPoint) {
-    // encodeURIComponent handles any residual spaces or special chars safely
-    return 'https://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/' + (mountPoint || 'code');
+  function getGitUrl(projectName, sfUsername, mountPoint) {
+    var user = sfUsername ? encodeURIComponent(sfUsername) + '@' : '';
+    return 'https://' + user + 'git.code.sf.net/p/' + encodeURIComponent(projectName) + '/' + (mountPoint || 'code');
+  }
+
+  function getGitRoUrl(projectName, mountPoint) {
+    return 'git://git.code.sf.net/p/' + encodeURIComponent(projectName) + '/' + (mountPoint || 'code');
   }
 
   /**
@@ -87,6 +91,217 @@ window.MobileMigrate = (function () {
       return null;
     }
   }
+
+  function getSshGitUrl(projectName, sfUsername) {
+    var user = sfUsername ? encodeURIComponent(sfUsername) + '@' : '';
+    return 'ssh://' + user + 'git.code.sf.net/p/' + encodeURIComponent(projectName) + '/code';
+  }
+
+  // ─── SourceForge Git Repo Pre-flight Check ───────────────────────────────
+  // Returns: { status: 'has-code' | 'empty' | 'no-repo', tools: [...] }
+
+  async function checkSFGitRepo(projectName, log) {
+    log('[1/4] Checking SourceForge git repo...');
+
+    // First, check what tools the project has via the REST API
+    var projectUrl = 'https://sourceforge.net/rest/p/' + encodeURIComponent(projectName);
+    try {
+      var projectData = await nativeGetJSON(projectUrl);
+      var tools = (projectData.tools || []).map(function (t) {
+        return { name: t.name, mount_point: t.mount_point };
+      });
+      var scmTool = await discoverScmTool(projectName);
+      if (!scmTool) {
+        var svnTool = tools.find(function (t) {
+          return (t.name || '').toLowerCase() === 'svn' && t.mount_point;
+        });
+        return { status: 'no-repo', scmType: svnTool ? 'svn' : null, tools: tools };
+      }
+
+      if (scmTool.scmType === 'svn') {
+        return { status: 'no-repo', scmType: 'svn', mountPoint: scmTool.mountPoint, tools: tools };
+      }
+
+      var gitUrl = getGitUrl(projectName, '', scmTool.mountPoint);
+      var infoUrl = gitUrl + '/info/refs?service=git-upload-pack';
+      var response = await fetch(infoUrl).catch(function () { return null; });
+      if (response && response.ok) {
+        var refs = await response.text();
+        return {
+          status: refs.length < 50 ? 'empty' : 'has-code',
+          mountPoint: scmTool.mountPoint,
+          tools: tools,
+        };
+      }
+      return { status: 'has-code', mountPoint: scmTool.mountPoint, tools: tools };
+    } catch (e) {
+      // If project API fails, try probing git directly
+    }
+
+    // If the API is unavailable, probe common mount points before falling back.
+    var commonMounts = ['code', 'git', 'svn', projectName];
+    for (var i = 0; i < commonMounts.length; i++) {
+      var mountPoint = commonMounts[i];
+      var gitUrl = getGitUrl(projectName, '', mountPoint);
+      var infoUrl = gitUrl + '/info/refs?service=git-upload-pack';
+      var res = await fetch(infoUrl).catch(function () { return null; });
+      if (res && res.ok) {
+        var text = await res.text();
+        return {
+          status: text.length < 50 ? 'empty' : 'has-code',
+          mountPoint: mountPoint,
+          tools: [],
+        };
+      }
+    }
+
+    // If probing is blocked (for example by browser CORS), let cloning report
+    // the underlying network error rather than incorrectly declaring no repo.
+    return { status: 'has-code', mountPoint: 'code', tools: [] };
+  }
+
+  // ─── SourceForge Files Download ──────────────────────────────────────────
+  // Downloads file listing from the SF File Release System (FRS)
+
+  async function listSFFiles(projectName) {
+    // The FRS API lists folders and files
+    var url = 'https://sourceforge.net/rest/p/' + encodeURIComponent(projectName) + '/';
+    var data = await nativeGetJSON(url);
+    // Extract file download URLs from the project data
+    // The FRS structure has folders → files with download URLs
+    return data;
+  }
+
+  async function downloadSFFileList(projectName) {
+    // Get the list of files from the Files section
+    var url = 'https://sourceforge.net/projects/' + encodeURIComponent(projectName) + '/rss?path=/';
+    try {
+      var res = await fetch(url);
+      if (!res.ok) return [];
+      var text = await res.text();
+      // Parse RSS to extract download links
+      var files = [];
+      var itemRegex = /<item>[\s\S]*?<link>([\s\S]*?)<\/link>[\s\S]*?<\/item>/gi;
+      var match;
+      while ((match = itemRegex.exec(text)) !== null) {
+        var fileUrl = match[1].trim();
+        if (fileUrl && fileUrl.indexOf('/download') !== -1) {
+          var fileName = fileUrl.split('/').filter(function (p) { return p && p !== 'download'; }).pop();
+          if (fileName) {
+            files.push({ name: decodeURIComponent(fileName), url: fileUrl });
+          }
+        }
+      }
+      return files;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // ─── Upload SF Files directly to GitHub ──────────────────────────────────
+  // Downloads files from SF Files section and creates them in a new GitHub
+  // repo via the GitHub Contents API. No git push needed — works everywhere.
+
+  async function uploadSFFilesToGitHub(projectName, token, owner, repoName, isPrivate, log) {
+    log('Listing files in SF Files section...');
+    var sfFiles = await downloadSFFileList(projectName);
+
+    if (sfFiles.length === 0) {
+      log('No files found in Files section. Creating README only.');
+      sfFiles = [];
+    }
+
+    // Create the GitHub repo
+    log('Creating GitHub repository ' + owner + '/' + repoName + '...');
+    var exists = await repoExists(token, owner, repoName);
+    var repoData;
+    if (exists) {
+      log('Repository already exists on GitHub.');
+      repoData = { html_url: 'https://github.com/' + owner + '/' + repoName };
+    } else {
+      repoData = await createRepo(token, repoName, { isPrivate: isPrivate });
+      log('Repository created: ' + repoData.html_url);
+    }
+
+    // Always create a README first (initializes the repo so we can add more files)
+    var readmeContent = '# ' + projectName + '\n\nMigrated from SourceForge via SF2GH Migrator.\n\n'
+      + 'Original project: https://sourceforge.net/projects/' + projectName + '/\n';
+    log('Creating README.md...');
+    try {
+      await githubFetch('PUT', '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repoName) + '/contents/README.md', token, {
+        message: 'Add README — migrated from SourceForge',
+        content: btoa(unescape(encodeURIComponent(readmeContent))),
+      });
+    } catch (readmeErr) {
+      if (readmeErr.status !== 422) throw readmeErr; // 422 = file already exists
+    }
+
+    // Download and upload each file via GitHub Contents API
+    var uploaded = 0;
+    var maxFiles = 15; // GitHub API rate limit friendly
+    for (var fi = 0; fi < sfFiles.length && uploaded < maxFiles; fi++) {
+      var f = sfFiles[fi];
+      var lower = f.name.toLowerCase();
+      // Skip obvious binaries
+      if (/\.(exe|msi|dmg|rpm|deb|apk|ipa|appimage)$/i.test(lower)) continue;
+      // Skip very large files (GitHub Contents API limit is 100MB, but be conservative)
+      if (f.size && f.size > 25 * 1024 * 1024) {
+        log('  Skipping ' + f.name + ' (too large for API upload)');
+        continue;
+      }
+
+      log('  [' + (uploaded + 1) + '/' + Math.min(sfFiles.length, maxFiles) + '] Downloading: ' + f.name);
+      try {
+        var resp = await fetch(f.url, {
+          headers: { 'User-Agent': 'SF2GH-Migrator/1.0' },
+          redirect: 'follow',
+        });
+        if (!resp.ok) {
+          log('    Warning: download failed (HTTP ' + resp.status + ')');
+          continue;
+        }
+        var content = await resp.arrayBuffer();
+        var bytes = new Uint8Array(content);
+
+        // Convert to base64 for GitHub API
+        var binary = '';
+        for (var bi = 0; bi < bytes.length; bi++) {
+          binary += String.fromCharCode(bytes[bi]);
+        }
+        var base64 = btoa(binary);
+
+        // Sanitize filename for GitHub (replace spaces, special chars)
+        var safeName = f.name.replace(/[+]/g, ' ').replace(/\s+/g, '_');
+
+        log('    Uploading to GitHub...');
+        await githubFetch('PUT',
+          '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repoName) + '/contents/' + encodeURIComponent(safeName),
+          token, {
+            message: 'Add ' + safeName + ' from SourceForge Files',
+            content: base64,
+          });
+        uploaded++;
+
+        // Small delay to avoid GitHub rate limits
+        await sleep(300);
+      } catch (err) {
+        if (err.status === 422) {
+          log('    File already exists, skipping.');
+          uploaded++;
+        } else {
+          log('    Warning: upload failed — ' + (err.message || err));
+        }
+      }
+    }
+
+    log('Uploaded ' + uploaded + ' file(s) to GitHub.');
+    return {
+      success: true,
+      filesCount: uploaded,
+      githubUrl: repoData.html_url,
+      githubRepo: owner + '/' + repoName,
+  };
+}
 
   // ─── Repo Name Sanitization ───────────────────────────────────────────────
 
@@ -186,7 +401,126 @@ window.MobileMigrate = (function () {
 
   // ─── Git Migration via isomorphic-git ────────────────────────────────────
 
+  // Detect whether we're running inside a Capacitor native shell.
+  // CapacitorHttp patches window.fetch to bypass CORS on native platforms,
+  // so we only need the CORS proxy when running in a plain browser.
+  function needsCorsProxy() {
+    return !(window.Capacitor && window.Capacitor.isNativePlatform &&
+             window.Capacitor.isNativePlatform());
+  }
+
+  // Public CORS proxy for isomorphic-git when running in a browser.
+  // SourceForge's git.code.sf.net does not send CORS headers, so browser-based
+  // clones fail without a proxy.  The proxy is NOT used on native Capacitor
+  // builds (CapacitorHttp handles it) or when the Express backend is available
+  // (the server uses native git, not isomorphic-git).
+  var CORS_PROXY = 'https://cors.isomorphic-git.org';
+
+  // Check if the native JGit plugin is available (Capacitor Android/iOS build)
+  function hasNativeGit() {
+    return !!(window.Capacitor && window.Capacitor.isNativePlatform &&
+              window.Capacitor.isNativePlatform() &&
+              window.Capacitor.Plugins && window.Capacitor.Plugins.NativeGit);
+  }
+
+  function getNativeGit() {
+    return window.Capacitor.Plugins.NativeGit;
+  }
+
+  // ─── Native JGit Migration (Android/iOS — supports SSH + HTTPS) ──────────
+
+  async function migrateGitRepoNative(sourceUrl, token, owner, repoName, isPrivate, log) {
+    var ng = getNativeGit();
+    var dirName = 'sf2gh-' + repoName + '-' + Date.now();
+
+    // Step 1: Create GitHub repository
+    log('Creating GitHub repository ' + owner + '/' + repoName + '...');
+    var repoData;
+    var exists = await repoExists(token, owner, repoName);
+    if (exists) {
+      log('Repository already exists on GitHub, pushing into it.');
+      repoData = { html_url: 'https://github.com/' + owner + '/' + repoName };
+    } else {
+      repoData = await createRepo(token, repoName, { isPrivate: isPrivate });
+      log('Repository created: ' + repoData.html_url);
+    }
+
+    // Clone from SourceForge using native JGit (supports SSH + HTTPS)
+    log('[3/5] Cloning from ' + sourceUrl + ' (native git) ...');
+    log('(Large repositories may take several minutes)');
+    await ng.clone({ url: sourceUrl, dir: dirName });
+    log('Clone complete.');
+
+    // Discover branches and tags
+    var branchResult = await ng.listBranches({ dir: dirName, remote: 'origin' });
+    var tagResult = await ng.listTags({ dir: dirName });
+    var remoteBranches = branchResult.branches || [];
+    var tags = tagResult.tags || [];
+    log('Found ' + remoteBranches.length + ' branch(es) and ' + tags.length + ' tag(s)');
+
+    var githubUrl = 'https://github.com/' + owner + '/' + repoName + '.git';
+    var pushedSteps = [];
+
+    // Push each branch to GitHub
+    log('[4/5] Pushing to GitHub...');
+    for (var bi = 0; bi < remoteBranches.length; bi++) {
+      var branch = remoteBranches[bi];
+      if (branch === 'HEAD') continue;
+      log('Pushing branch: ' + branch);
+      try {
+        await ng.push({
+          dir: dirName,
+          remoteUrl: githubUrl,
+          ref: 'refs/remotes/origin/' + branch,
+          remoteRef: 'refs/heads/' + branch,
+          force: true,
+          token: token,
+        });
+        pushedSteps.push('push:' + branch);
+      } catch (pushErr) {
+        log('Warning: could not push branch ' + branch + ': ' + (pushErr.message || pushErr));
+      }
+    }
+
+    // Push each tag
+    for (var ti = 0; ti < tags.length; ti++) {
+      var tag = tags[ti];
+      log('Pushing tag: ' + tag);
+      try {
+        await ng.push({
+          dir: dirName,
+          remoteUrl: githubUrl,
+          ref: 'refs/tags/' + tag,
+          remoteRef: 'refs/tags/' + tag,
+          force: true,
+          token: token,
+        });
+        pushedSteps.push('tag:' + tag);
+      } catch (tagErr) {
+        log('Warning: could not push tag ' + tag + ': ' + (tagErr.message || tagErr));
+      }
+    }
+
+    // Step 6: Cleanup cloned repo from device storage
+    try { await ng.cleanup({ dir: dirName }); } catch (_) {}
+
+    log('Migration complete!');
+    return {
+      success: true,
+      scmType: 'git',
+      githubUrl: repoData.html_url,
+      githubRepo: owner + '/' + repoName,
+      steps: ['clone'].concat(pushedSteps),
+    };
+  }
+
+  // ─── isomorphic-git Migration (browser fallback) ─────────────────────────
+
   async function migrateGitRepo(sourceUrl, token, owner, repoName, isPrivate, log) {
+    // Prefer native JGit when available (supports SSH, no CORS issues)
+    if (hasNativeGit()) {
+      return migrateGitRepoNative(sourceUrl, token, owner, repoName, isPrivate, log);
+    }
     const { git, LightningFS, http } = getGitLibs();
 
     // Create a fresh IndexedDB-backed filesystem for this migration
@@ -216,9 +550,10 @@ window.MobileMigrate = (function () {
     }
 
     // Step 2: Clone from SourceForge (all branches + tags)
-    log('Cloning from ' + sourceUrl + ' ...');
+    var useCorsProxy = needsCorsProxy();
+    log('Cloning from ' + sourceUrl + (useCorsProxy ? ' (via CORS proxy)' : '') + ' ...');
     log('(Large repositories may take several minutes)');
-    await git.clone({
+    var cloneOpts = {
       fs: fs,
       http: http,
       dir: dir,
@@ -235,7 +570,11 @@ window.MobileMigrate = (function () {
         var trimmed = msg.trim();
         if (trimmed) log('[remote] ' + trimmed);
       },
-    });
+    };
+    if (useCorsProxy) {
+      cloneOpts.corsProxy = CORS_PROXY;
+    }
+    await git.clone(cloneOpts);
     log('Clone complete.');
 
     // Step 3: Discover all local branches and tags
@@ -344,7 +683,7 @@ window.MobileMigrate = (function () {
         ],
       };
     }
-    if (!scmTool && parsed.scmType === 'git-assumed') {
+    if (!scmTool) {
       return {
         projectName: parsed.projectName,
         scmType: 'none',
@@ -360,7 +699,8 @@ window.MobileMigrate = (function () {
       };
     }
 
-    const gitUrl = getGitUrl(parsed.projectName, scmTool ? scmTool.mountPoint : undefined);
+    var sfUser = options.sfUsername || '';
+    const gitUrl = getGitUrl(parsed.projectName, sfUser, scmTool.mountPoint);
     const scmLabel = parsed.scmType === 'git-assumed' ? 'git (discovered via API)' : 'git';
 
     return {
@@ -370,24 +710,29 @@ window.MobileMigrate = (function () {
       githubUrl: 'https://github.com/' + owner + '/' + repoName,
       steps: [
         {
-          step: 'create-repo',
-          description: 'Create GitHub repository: ' + owner + '/' + repoName,
-          command: 'GitHub API POST /user/repos {"name":"' + repoName + '"}',
+          step: 'check-sf-repo',
+          description: '[1/5] Check SourceForge git repo status (has code / empty / no Code tab)',
+          command: 'GET /rest/p/' + parsed.projectName + '/',
+        },
+        {
+          step: 'populate-sf',
+          description: '[2/5] If empty: extract release files and push to SF Code tab',
+          command: 'Download files → extract → git push → SF Code tab',
         },
         {
           step: 'clone',
-          description: 'Clone all branches and tags from SourceForge into device storage',
-          command: 'isomorphic-git clone --no-single-branch --tags ' + gitUrl,
+          description: '[3/5] Clone all branches and tags from SourceForge',
+          command: (hasNativeGit() ? 'JGit' : 'isomorphic-git') + ' clone ' + gitUrl,
         },
         {
-          step: 'push-branches',
-          description: 'Push all branches to GitHub',
-          command: 'isomorphic-git push (each remote branch → github.com)',
+          step: 'create-and-push',
+          description: '[4/5] Create GitHub repo and push all branches/tags',
+          command: 'GitHub API + ' + (hasNativeGit() ? 'JGit' : 'isomorphic-git') + ' push',
         },
         {
-          step: 'push-tags',
-          description: 'Push all tags to GitHub',
-          command: 'isomorphic-git push (each tag → github.com)',
+          step: 'complete',
+          description: '[5/5] Migration complete',
+          command: 'Verify and clean up',
         },
       ],
     };
@@ -411,7 +756,7 @@ window.MobileMigrate = (function () {
       if (i > 0) await sleep(600);
 
       log('');
-      log('─── [' + (i + 1) + '/' + urls.length + '] ' + rawUrl + ' ───');
+      log('═══ [' + (i + 1) + '/' + urls.length + '] ' + rawUrl + ' ═══');
 
       try {
         var parsed = parseSourceForgeUrl(rawUrl);
@@ -427,11 +772,12 @@ window.MobileMigrate = (function () {
         }
 
         var repoName = sanitizeRepoName(parsed.projectName);
+        var projectName = parsed.projectName;
 
-        // Discover the actual SCM tool mount point from SourceForge REST API
-        log('  Discovering repository tools...');
-        var scmTool = await discoverScmTool(parsed.projectName);
-        if (scmTool && scmTool.scmType === 'svn') {
+        // ── Step 1: Pre-flight check ──────────────────────────────────
+        var repoStatus = await checkSFGitRepo(projectName, function (msg) { log('  ' + msg); });
+
+        if (repoStatus.scmType === 'svn') {
           log('  SVN project — not supported on mobile. Use the desktop app.');
           results.push({
             success: false,
@@ -440,17 +786,69 @@ window.MobileMigrate = (function () {
           });
           continue;
         }
-        if (!scmTool) {
-          log('  No source code repository found for this project.');
-          log('  This project may only use file releases without a Git/SVN repo.');
+        if (repoStatus.status === 'no-repo') {
+          log('  ✗ No Code/git tab found for this project.');
+          log('  → Create one at: https://sourceforge.net/p/' + projectName + '/admin/tools');
           results.push({
             success: false,
             sourceUrl: rawUrl,
-            error: 'No source code repository (Git or SVN) found for this SourceForge project',
+            error: 'No Code/git tab — create one at sf.net/p/' + projectName + '/admin/tools',
           });
           continue;
         }
-        var gitUrl = getGitUrl(parsed.projectName, scmTool.mountPoint);
+        var sfUser = options.sfUsername || '';
+
+        if (repoStatus.status === 'empty') {
+          log('  ⚠ Git repo exists but is empty.');
+          log('  [1.5/5] Extracting release files and populating Code tab...');
+
+          // Try server-side populate (Electron/web with backend)
+          var populated = false;
+          if (!useClientSide || !clientSideMode) {
+            try {
+              var popRes = await fetch('/api/sf-populate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: projectName, sfUsername: sfUser }),
+              });
+              var popData = await popRes.json();
+              if (popData.success) {
+                log('  ✓ Populated Code tab with ' + popData.filesCount + ' file(s) from releases.');
+                populated = true;
+              } else {
+                log('  ⚠ Could not populate: ' + (popData.message || popData.error));
+              }
+            } catch (popErr) {
+              log('  ⚠ Server populate failed: ' + (popErr.message || popErr));
+            }
+          }
+
+          // Try native JGit populate for Android
+          if (!populated && hasNativeGit()) {
+            var sfFiles = await downloadSFFileList(projectName);
+            if (sfFiles.length > 0) {
+              log('  Found ' + sfFiles.length + ' file(s) in Files section.');
+              log('  Note: Native file extraction requires the desktop app.');
+              log('  Continuing with empty repo migration to GitHub.');
+            } else {
+              log('  No files found in Files section either.');
+            }
+          }
+
+          if (!populated) {
+            log('  Proceeding with empty repo → GitHub migration.');
+          }
+        } else {
+          log('  ✓ Git repo has content.');
+        }
+
+        // ── Step 2: Clone from SourceForge ────────────────────────────
+        log('  [2/5] Cloning from SourceForge...');
+        // Prefer git:// (anonymous RO, most reliable) for cloning.
+        // Native JGit uses HTTPS (git:// not supported by JGit).
+        var gitUrl = hasNativeGit()
+          ? getGitUrl(projectName, sfUser, repoStatus.mountPoint)
+          : getGitRoUrl(projectName, repoStatus.mountPoint);
 
         var result = await migrateGitRepo(
           gitUrl,
@@ -460,15 +858,25 @@ window.MobileMigrate = (function () {
           Boolean(options.isPrivate),
           function (msg) { log('  ' + msg); }
         );
+
+        // ── Steps 3-4 are inside migrateGitRepo (push branches, push tags)
+        log('  [5/5] Migration complete for ' + projectName);
         results.push(Object.assign({ sourceUrl: rawUrl }, result));
 
       } catch (err) {
         var msg = err.message || String(err);
-        // 404 on git clone almost always means the project uses SVN, not git
-        if (msg.indexOf('404') !== -1 || msg.indexOf('Not Found') !== -1) {
-          log('  Git repository not found (404). This project likely uses SVN.');
-          log('  SVN migration requires the desktop app — skipping.');
-          results.push({ success: false, sourceUrl: rawUrl, error: 'SVN project (git 404) — use desktop app' });
+        // Distinguish CORS / network errors from actual 404s
+        var isCors = msg.indexOf('CORS') !== -1 || msg.indexOf('Failed to fetch') !== -1 ||
+                     msg.indexOf('NetworkError') !== -1 || msg.indexOf('TypeError') !== -1 ||
+                     msg.indexOf('Load failed') !== -1;
+        if (isCors) {
+          log('  Clone failed — likely a CORS issue (SourceForge blocks browser git requests).');
+          log('  Tip: Use the desktop app, native mobile app (APK/IPA), or self-host the web server.');
+          results.push({ success: false, sourceUrl: rawUrl, error: 'CORS blocked — use desktop or native app' });
+        } else if (msg.indexOf('404') !== -1 || msg.indexOf('Not Found') !== -1) {
+          log('  Git repository not found (404). This project may not have a Code tab.');
+          log('  → Create one at: https://sourceforge.net/p/' + (parsed ? parsed.projectName : '???') + '/admin/tools');
+          results.push({ success: false, sourceUrl: rawUrl, error: 'No git repo (404) — create Code tab on SF first' });
         } else {
           log('  Error: ' + msg);
           results.push({ success: false, sourceUrl: rawUrl, error: msg });
@@ -593,6 +1001,7 @@ window.MobileMigrate = (function () {
     planMigration: planMigration,
     migrateBatch: migrateBatch,
     lookupProfile: lookupProfile,
+    uploadSFFilesToGitHub: uploadSFFilesToGitHub,
   };
 
 })();

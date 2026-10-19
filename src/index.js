@@ -8,6 +8,7 @@ const path = require('path');
 const { migrate, migrateBatch, planMigration } = require('./migrate');
 const { detect } = require('./detect');
 const { sanitizeRepoName } = require('./sanitize');
+const { populateSFCodeTab, listSFFiles } = require('./sf-files');
 const logger = require('./logger');
 
 const app = express();
@@ -131,16 +132,71 @@ app.post('/api/migrate/batch', async (req, res) => {
   }
 });
 
+// List files in a SF project's Files section
+app.post('/api/sf-files', async (req, res) => {
+  try {
+    const { projectName } = req.body;
+    if (!projectName) {
+      return res.status(400).json({ error: 'projectName is required' });
+    }
+    const files = await listSFFiles(projectName);
+    res.json({ projectName, files });
+  } catch (err) {
+    logger.error(`SF files error: ${err.message}`);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Populate an empty SF Code/git tab with files from the Files section
+app.post('/api/sf-populate', async (req, res) => {
+  try {
+    const { projectName, sfUsername, sfPassword } = req.body;
+    if (!projectName) {
+      return res.status(400).json({ error: 'projectName is required' });
+    }
+    if (!sfUsername) {
+      return res.status(400).json({ error: 'sfUsername is required' });
+    }
+    const result = await populateSFCodeTab(projectName, sfUsername, {
+      sfPassword,
+      onLog: (msg) => logger.info(`[sf-populate] ${msg}`),
+    });
+    res.json(result);
+  } catch (err) {
+    logger.error(`SF populate error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // SPA fallback
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 // Start server (only when run directly, not when imported for testing)
-const PORT = process.env.PORT || 3000;
+const PREFERRED_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const MAX_PORT_ATTEMPTS = 10;
+
+function tryListen(port, attempt) {
+  return new Promise((resolve, reject) => {
+    const srv = app.listen(port, () => resolve({ srv, port }));
+    srv.on('error', (err) => {
+      if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_ATTEMPTS) {
+        srv.close();
+        resolve(tryListen(port + 1, attempt + 1));
+      } else {
+        reject(err);
+      }
+    });
+  });
+}
+
 if (require.main === module) {
-  app.listen(PORT, () => {
-    logger.info(`SF2GH Migrator running on http://localhost:${PORT}`);
+  tryListen(PREFERRED_PORT, 1).then(({ port }) => {
+    logger.info(`SF2GH Migrator running on http://localhost:${port}`);
+  }).catch((err) => {
+    logger.error(`Failed to start server: ${err.message}`);
+    process.exit(1);
   });
 }
 

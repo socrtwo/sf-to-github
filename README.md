@@ -1,5 +1,10 @@
 # SF2GH Migrator
 
+<!--PAGES_LINK_BANNER-->
+> 🌐 **Live page:** [https://socrtwo.github.io/sf-to-github/](https://socrtwo.github.io/sf-to-github/)  
+> 📦 **Releases:** [github.com/socrtwo/sf-to-github/releases](https://github.com/socrtwo/sf-to-github/releases)
+<!--/PAGES_LINK_BANNER-->
+
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Web%20%7C%20Desktop%20%7C%20Mobile-blue)]()
