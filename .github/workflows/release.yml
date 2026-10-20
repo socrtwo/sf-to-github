@@ -1,0 +1,379 @@
+name: Build & Release All Platforms
+
+# Triggers when you push a version tag like v1.0.0
+# or manually via GitHub Actions → "Run workflow"
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to release (e.g. v1.0.0)'
+        required: true
+
+# Opt into Node.js 24 for all action runners (checkout, setup-node, upload-artifact, etc.)
+# GitHub is deprecating Node.js 20 on June 2 2026 and removing it September 16 2026.
+# This env var silences the deprecation warning and ensures forward compatibility.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ─── Windows installer + portable exe ────────────────────────────────────────
+  build-windows:
+    name: Windows
+    runs-on: windows-latest
+    continue-on-error: true
+    environment: release
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build Windows installer & portable
+        run: npm run electron:build -- --win --publish never
+      - name: Azure login (OIDC, no stored secret)
+        if: vars.AZURE_TENANT_ID != ''
+        uses: azure/login@v2
+        with:
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign Windows binaries with Azure Trusted Signing
+        if: vars.AZURE_TENANT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          endpoint: ${{ vars.TS_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.TS_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ vars.TS_CERT_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*.exe
+            dist/*.appx
+          if-no-files-found: warn
+
+  # ─── macOS DMG + zip ─────────────────────────────────────────────────────────
+  build-macos:
+    name: macOS
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build macOS DMG & zip
+        run: npm run electron:build -- --mac --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: warn
+
+  # ─── Linux AppImage, deb, rpm ─────────────────────────────────────────────────
+  build-linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install Linux packaging tools
+        run: sudo apt-get install -y fakeroot dpkg rpm
+      - run: npm ci
+      - name: Build Linux packages
+        run: npm run electron:build -- --linux --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
+          if-no-files-found: warn
+
+  # ─── Android APK ─────────────────────────────────────────────────────────────
+  build-android:
+    name: Android
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      # Capacitor Android v7 requires Java 21
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      - run: npm ci
+      # Install Capacitor Android platform (version-pinned to match @capacitor/core)
+      - run: npm install @capacitor/android@^7 --no-save
+      - name: Initialize Capacitor Android project
+        run: |
+          npx cap add android 2>/dev/null || true
+          npx cap sync android
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - name: Rename APK
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          mv android/app/build/outputs/apk/debug/app-debug.apk \
+             "SF2GH-Migrator-${VERSION}-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: '*.apk'
+
+  # ─── iOS (unsigned — sideloadable with AltStore / TestFlight via Xcode) ──────
+  build-ios:
+    name: iOS
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      # Install Capacitor iOS platform (version-pinned to match @capacitor/core)
+      - run: npm install @capacitor/ios@^7 --no-save
+      - name: Initialize Capacitor iOS project
+        run: |
+          npx cap add ios 2>/dev/null || true
+          npx cap sync ios
+      - name: Install CocoaPods dependencies
+        working-directory: ios/App
+        run: pod install
+      - name: Build iOS archive (unsigned)
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath ios/App/App.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Package as IPA
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          mkdir -p Payload
+          cp -r ios/App/App.xcarchive/Products/Applications/App.app Payload/
+          zip -r "SF2GH-Migrator-${VERSION}-ios-unsigned.ipa" Payload/
+          rm -rf Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: '*.ipa'
+
+  # ─── Web (self-hostable zip of the full app) ─────────────────────────────────
+  build-web:
+    name: Web
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci --omit=dev
+      - name: Package web app
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+
+          # Windows — double-click to start
+          cat > "ClickHereToStart-Windows.bat" << 'BATEOF'
+          @echo off
+          title SF2GH Migrator Server
+          echo.
+          echo  ==========================================
+          echo   SF2GH Migrator is starting...
+          echo   Opening http://localhost:3000 in browser
+          echo  ==========================================
+          echo.
+          echo  (Keep this window open while using the app)
+          echo.
+          timeout /t 2 /nobreak >nul
+          start http://localhost:3000
+          node src\index.js
+          pause
+          BATEOF
+
+          # Mac/Linux — double-click or run in terminal
+          cat > "ClickHereToStart-MacOrLinux.sh" << 'SHEOF'
+          #!/bin/bash
+          cd "$(dirname "$0")"
+          echo ""
+          echo "  =========================================="
+          echo "   SF2GH Migrator is starting..."
+          echo "   Open http://localhost:3000 in your browser"
+          echo "  =========================================="
+          echo ""
+          echo "  (Keep this terminal open while using the app)"
+          echo ""
+          sleep 1
+          if command -v xdg-open >/dev/null 2>&1; then xdg-open http://localhost:3000 &
+          elif command -v open >/dev/null 2>&1; then open http://localhost:3000 &
+          fi
+          node src/index.js
+          SHEOF
+          chmod +x "ClickHereToStart-MacOrLinux.sh"
+
+          # Termux (Android) — tap to start
+          cat > "ClickHereToStart-Termux.sh" << 'TXEOF'
+          #!/data/data/com.termux/files/usr/bin/bash
+          cd "$(dirname "$0")"
+          echo ""
+          echo "  =========================================="
+          echo "   SF2GH Migrator is starting..."
+          echo "  =========================================="
+          echo ""
+          # Install Node.js if not present
+          if ! command -v node >/dev/null 2>&1; then
+            echo "  Installing Node.js (one-time setup)..."
+            pkg install -y nodejs
+          fi
+          echo "  Server running! Open this in your browser:"
+          echo ""
+          echo "    http://localhost:3000"
+          echo ""
+          echo "  (Keep Termux open while using the app)"
+          echo ""
+          termux-open-url http://localhost:3000 2>/dev/null || true
+          node src/index.js
+          TXEOF
+          chmod +x "ClickHereToStart-Termux.sh"
+
+          zip -r "SF2GH-Migrator-${VERSION}-web.zip" \
+            src/ public/ package.json package-lock.json README.md LICENSE \
+            node_modules/ \
+            "ClickHereToStart-Windows.bat" \
+            "ClickHereToStart-MacOrLinux.sh" \
+            "ClickHereToStart-Termux.sh" \
+            --exclude "node_modules/.cache/*" \
+            --exclude "node_modules/.package-lock.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: '*.zip'
+
+  # ─── ChromeOS (installable PWA bundle) ───────────────────────────────────────
+  # ChromeOS treats PWAs as first-class apps. The app already ships a full PWA
+  # in public/ (manifest.json + sw.js), so we package that as a ChromeOS bundle
+  # the same way the web leg packages the server app.
+  build-chromeos:
+    name: ChromeOS
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package ChromeOS PWA bundle
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          rm -rf chromeos-stage && mkdir -p chromeos-stage/app
+          cp -r public/. chromeos-stage/app/
+          {
+            echo "SF2GH Migrator - ChromeOS"
+            echo ""
+            echo "ChromeOS treats Progressive Web Apps as first-class apps;"
+            echo "no APK, extension, or signing is required."
+            echo ""
+            echo "Install (recommended):"
+            echo "  1. Open the hosted app in Chrome on your Chromebook."
+            echo "  2. Click the install icon in the address bar (or menu ->"
+            echo "     Install SF2GH Migrator)."
+            echo "  3. The app appears in your launcher and works offline."
+            echo ""
+            echo "Run from this bundle (offline / client-side mode):"
+            echo "  1. Unzip into Files -> My files."
+            echo "  2. Open app/index.html in Chrome."
+            echo ""
+            echo "Chromebooks with Play Store support can alternatively sideload"
+            echo "the Android APK from this same release."
+          } > chromeos-stage/INSTALL-CHROMEOS.txt
+          cd chromeos-stage && zip -r "../SF2GH-Migrator-${VERSION}-chromeos.zip" . && cd ..
+          ls -lh "SF2GH-Migrator-${VERSION}-chromeos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chromeos
+          path: '*-chromeos.zip'
+
+  # ─── Create GitHub Release with all artifacts ─────────────────────────────────
+  release:
+    name: Publish Release
+    # Always run even if some platform builds failed — publish whatever succeeded
+    if: always()
+    needs: [build-windows, build-macos, build-linux, build-android, build-ios, build-web, build-chromeos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+        continue-on-error: true
+      - name: List release files
+        run: ls -lh release-files/ 2>/dev/null || echo "No artifacts to list"
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # inputs.version is set when manually triggered; ref_name is the tag on push
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          name: 'SF2GH Migrator ${{ github.event.inputs.version || github.ref_name }}'
+          generate_release_notes: true
+          files: release-files/**/*
+          body: |
+            ## Downloads
+
+            | Platform | File | Notes |
+            |----------|------|-------|
+            | Windows  | `*-Setup.exe` | Standard installer (recommended) |
+            | Windows  | `*-Portable.exe` | No install needed, just run it |
+            | macOS    | `*.dmg` | Drag to Applications |
+            | Linux    | `*.AppImage` | Universal — works on any distro, just `chmod +x` and run |
+            | Linux    | `*.deb` | Ubuntu / Debian |
+            | Linux    | `*.rpm` | Fedora / Red Hat |
+            | Android  | `*-android.apk` | Sideload: enable "Install unknown apps" in Settings |
+            | iOS      | `*-ios-unsigned.ipa` | Install via AltStore or Apple TestFlight |
+            | ChromeOS | `*-chromeos.zip` | Install the PWA from Chrome, or open `app/index.html`; Play-Store Chromebooks can sideload the APK |
+            | Web      | `*-web.zip` | Extract and run `npm install && npm start`, then open http://localhost:3000 |
+
+            > **Mobile / browser users:** The Android APK and iOS IPA run the migration entirely on-device — no server needed.
+            > The web zip requires Node.js to run the server. For browser-only use, open the app in any modern browser and it will automatically switch to client-side mode if the server is unavailable.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

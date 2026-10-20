@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Migrate SourceForge projects to GitHub with one click">
+  <meta name="theme-color" content="#ffffff">
+  <title>SF2GH Migrator</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header-content">
+        <div class="logo">
+          <svg class="logo-icon" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+            <line x1="12" y1="2" x2="12" y2="22" opacity="0.3"></line>
+          </svg>
+          <div>
+            <h1>SF2GH Migrator</h1>
+            <p class="subtitle">Migrate SourceForge projects to GitHub</p>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="health-status" id="healthStatus">
+            <span class="status-dot"></span>
+            <span class="status-text">Checking...</span>
+          </div>
+          <button type="button" class="btn-help" id="btnHelp" title="Help &amp; Instructions" aria-label="Help">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="card">
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          Authentication
+        </h2>
+        <div class="form-group">
+          <label for="githubToken">GitHub Personal Access Token</label>
+          <div class="input-wrapper">
+            <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+            <button type="button" class="btn-icon" id="toggleToken" title="Toggle visibility">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+          </div>
+          <small class="help-text">Needs <code>repo</code> scope. <a href="https://github.com/settings/tokens/new?scopes=repo&description=SF2GH+Migrator" target="_blank" rel="noopener">Create one →</a></small>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Source Repositories
+        </h2>
+
+        <!-- Profile lookup -->
+        <div class="form-group">
+          <label for="sfProfile">Find by SourceForge Profile <span class="label-hint">(optional)</span></label>
+          <div class="input-wrapper">
+            <input type="text" id="sfProfile" placeholder="https://sourceforge.net/u/username/profile/ or username">
+            <button type="button" class="btn-icon" id="btnLookupProfile" title="Look up projects">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </button>
+          </div>
+          <small class="help-text">Enter a SourceForge profile URL or username to auto-discover all their repositories.</small>
+        </div>
+
+        <!-- Project picker (hidden until lookup succeeds) -->
+        <div id="profileProjects" hidden>
+          <div class="profile-projects-header">
+            <span id="profileProjectsLabel" class="label-hint"></span>
+            <div class="profile-projects-actions">
+              <button type="button" class="btn-link" id="btnSelectAllProjects">Select all</button>
+              <button type="button" class="btn-link" id="btnDeselectAllProjects">Deselect all</button>
+              <button type="button" class="btn btn-action btn-sm" id="btnAddSelected">Add selected to list</button>
+            </div>
+          </div>
+          <div id="projectCheckboxList" class="project-checkbox-list"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="sourceUrls">SourceForge URLs <span class="label-hint">(one per line)</span></label>
+          <textarea id="sourceUrls" rows="5" placeholder="https://sourceforge.net/projects/my-project/&#10;https://git.code.sf.net/p/another-project/code&#10;https://svn.code.sf.net/p/legacy-project/code"></textarea>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          Options
+        </h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="targetOrg">Target Organization <span class="label-hint">(optional)</span></label>
+            <input type="text" id="targetOrg" placeholder="Leave empty for personal repos">
+          </div>
+          <div class="form-group">
+            <label for="repoRename">Repo Name Prefix/Suffix <span class="label-hint">(optional)</span></label>
+            <div class="rename-config">
+              <select id="renamePosition">
+                <option value="prefix">Prefix</option>
+                <option value="suffix">Suffix</option>
+                <option value="none" selected>None</option>
+              </select>
+              <input type="text" id="repoRename" placeholder="e.g. SF-">
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="privateRepos">
+            <span class="checkbox-custom"></span>
+            Create as private repositories
+          </label>
+        </div>
+      </section>
+
+      <!-- ─── Migration Steps ──────────────────────────────────────────── -->
+      <section class="card">
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+          Migration Steps
+        </h2>
+
+        <div class="step-card">
+          <div class="step-header">
+            <span class="step-number">1</span>
+            <span class="step-title">Check SourceForge Code Tabs</span>
+          </div>
+          <p class="step-description">Verify that each SourceForge project has a Git Code tab. Projects without one will need it created before migration.</p>
+          <div class="step-actions">
+            <button class="btn btn-action btn-sm" id="btnCheckCodeTabs" disabled>Check Code Tabs</button>
+          </div>
+          <div id="codeTabResults" hidden></div>
+        </div>
+
+        <hr class="step-divider">
+
+        <div class="step-card">
+          <div class="step-header">
+            <span class="step-number">2</span>
+            <span class="step-title">Upload SF Files to GitHub</span>
+          </div>
+          <p class="step-description">For projects with downloadable files on SourceForge, download them and upload directly to new GitHub repos via the GitHub API.</p>
+          <div class="step-actions">
+            <button class="btn btn-action btn-sm" id="btnPopulateCode" disabled>Upload Files to GitHub</button>
+          </div>
+        </div>
+
+        <hr class="step-divider">
+
+        <div class="step-card">
+          <div class="step-header">
+            <span class="step-number">3</span>
+            <span class="step-title">Preview Migration Plan</span>
+          </div>
+          <p class="step-description">Dry run: see exactly what will be cloned and where it will go on GitHub, without making any changes.</p>
+          <div class="step-actions">
+            <button class="btn btn-secondary btn-sm" id="btnDryRun" disabled>Dry Run (Preview)</button>
+          </div>
+        </div>
+
+        <hr class="step-divider">
+
+        <div class="step-card">
+          <div class="step-header">
+            <span class="step-number">4</span>
+            <span class="step-title">Migrate to GitHub</span>
+          </div>
+          <p class="step-description">Clone all code from SourceForge and push to newly created GitHub repositories.</p>
+          <div class="step-actions">
+            <button class="btn btn-action btn-sm" id="btnMigrate" disabled>Migrate to GitHub</button>
+          </div>
+        </div>
+
+        <hr class="step-divider">
+
+        <div class="step-actions" style="text-align: center; padding-top: 4px;">
+          <button class="btn btn-action" id="btnAutomate" disabled>Automate All Steps (2-4)</button>
+        </div>
+      </section>
+
+      <section class="card output-section" id="outputSection" hidden>
+        <h2 class="card-title">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          Output
+        </h2>
+        <div class="output-log" id="outputLog"></div>
+      </section>
+    </main>
+
+    <!-- ─── Help Modal ─────────────────────────────────────────────────── -->
+    <div class="modal-overlay" id="helpModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 id="helpModalTitle">SF2GH Migrator — Help &amp; Instructions</h2>
+          <button type="button" class="modal-close" id="helpModalClose" aria-label="Close help">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+
+          <h3>What does this app do?</h3>
+          <p>SF2GH Migrator copies an entire SourceForge project — all branches, all tags, all history — into a new GitHub repository. It works with both <strong>Git</strong> and <strong>SVN</strong> projects hosted on SourceForge.</p>
+
+          <h3>Step 1 — GitHub Token</h3>
+          <p>Paste a GitHub Personal Access Token with the <code>repo</code> scope. This lets the app create repositories on your account and push code to them. <a href="https://github.com/settings/tokens/new?scopes=repo&description=SF2GH+Migrator" target="_blank" rel="noopener">Create a token →</a></p>
+
+          <h3>Step 2 — Find repos by SourceForge profile <span class="badge-new">NEW</span></h3>
+          <p>The easiest way to add repos is to look up a SourceForge user:</p>
+          <ol>
+            <li>Paste a SourceForge profile URL into the <strong>"Find by SourceForge Profile"</strong> field, for example:<br>
+              <code>https://sourceforge.net/u/myusername/profile/</code><br>
+              or just type the username: <code>myusername</code></li>
+            <li>Click the <strong>search icon</strong> (or press Enter).</li>
+            <li>A list of all their projects appears with checkboxes.</li>
+            <li>Tick the ones you want, then click <strong>"Add selected to list"</strong>.</li>
+          </ol>
+
+          <h3>Step 2 (alternative) — Paste URLs directly</h3>
+          <p>You can also type or paste SourceForge URLs directly into the text area, one per line. Accepted formats:</p>
+          <ul>
+            <li><code>https://sourceforge.net/projects/my-project/</code></li>
+            <li><code>https://git.code.sf.net/p/my-project/code</code> — Git only</li>
+            <li><code>https://svn.code.sf.net/p/my-project/code</code> — SVN only</li>
+          </ul>
+
+          <h3>Step 3 — Options</h3>
+          <ul>
+            <li><strong>Target Organization</strong> — leave blank to migrate to your personal account, or enter an org name (you must be a member with repo-creation rights).</li>
+            <li><strong>Private repositories</strong> — tick this to create private repos instead of public ones.</li>
+          </ul>
+
+          <h3>Step 4 — Dry Run vs. Migrate</h3>
+          <ul>
+            <li><strong>Dry Run (Preview)</strong> — shows exactly what the app would do without touching GitHub or SourceForge. Use this first to verify the plan.</li>
+            <li><strong>Migrate to GitHub</strong> — creates the GitHub repo(s) and copies all code. This is the real thing.</li>
+          </ul>
+
+          <h3>Modes</h3>
+          <ul>
+            <li><strong>Server Mode</strong> — when running locally with <code>npm start</code>, the app uses your machine's git/svn binaries. Supports both Git and SVN.</li>
+            <li><strong>Browser Mode / Mobile App</strong> — when the server is not running (e.g. accessed from a phone or tablet), the app switches automatically to client-side mode using a built-in JavaScript git engine. Git repos work fully; SVN repos require the desktop version.</li>
+          </ul>
+
+          <h3>Status indicator</h3>
+          <p>The dot in the top-right corner shows the current mode:</p>
+          <ul>
+            <li><span class="status-dot online" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><strong>Server v1.x.x</strong> — connected to local Node.js server (full Git + SVN support)</li>
+            <li><span class="status-dot online" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><strong>Browser Mode</strong> — client-side mode, server not found (Git only)</li>
+            <li><span class="status-dot online" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><strong>Mobile App</strong> — running as installed iOS/Android app (Git only)</li>
+            <li><span class="status-dot offline" style="display:inline-block;vertical-align:middle;margin-right:4px"></span><strong>Server offline</strong> — server not found and browser mode unavailable</li>
+          </ul>
+
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <p>SF2GH Migrator &middot; MIT License &middot; <a href="https://github.com/socrtwo/sf-to-github" target="_blank" rel="noopener">Source Code</a></p>
+    </footer>
+  </div>
+
+  <!-- isomorphic-git: pure-JS git for mobile (Capacitor) migration without a server -->
+  <!-- These are loaded from CDN and cached after the first connection. -->
+  <script src="https://unpkg.com/@isomorphic-git/lightning-fs@4.6.0/dist/lightning-fs.min.js"></script>
+  <script src="https://unpkg.com/isomorphic-git@1.27.1/index.umd.min.js"></script>
+  <script src="https://unpkg.com/isomorphic-git@1.27.1/http/web/index.umd.js"></script>
+  <script src="/js/mobile-migrate.js"></script>
+  <script>
+    // Register NativeGit plugin for Capacitor native builds (Android/iOS).
+    // Capacitor auto-injects the native bridge, but we need to register
+    // the plugin name so JS can call it via Capacitor.Plugins.NativeGit.
+    (function () {
+      if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.registerPlugin) {
+        window.Capacitor.registerPlugin('NativeGit');
+      }
+    })();
+  </script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+appId: com.sf2gh.migrator
+productName: SF2GH Migrator
+directories:
+  output: dist
+files:
+  - src/**/*
+  - electron/**/*
+  - public/**/*
+  - package.json
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  icon: public/icons/icon-512.png
+win:
+  target:
+    - nsis
+    - portable
+    - appx
+  icon: public/icons/icon-512.png
+appx:
+  publisherDisplayName: SF2GH Migrator
+  identityName: SF2GHMigrator
+  publisher: CN=SF2GH Migrator
+  backgroundColor: '#0d1117'
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm
+  category: Development
+  icon: public/icons/icon-512.png
+  maintainer: socrtwo@users.noreply.github.com
+flatpak:
+  runtimeVersion: '22.08'
+  sdk: org.freedesktop.Sdk
+  runtime: org.freedesktop.Platform
+  branch: stable
+  finishArgs:
+    - --share=network
+    - --socket=x11
+    - --socket=wayland
+    - --filesystem=home
+    - --device=dri
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
