@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+
+# Capacitor generated platforms
+android/
+ios/
+
+# Electron build artifacts
+out/
+
+# Screenshots / local dev
+screenshot.png
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
